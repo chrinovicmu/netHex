@@ -57,12 +57,16 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Couldn find devices %s\n", errbuff); 
         return 2; 
     }
+    if(alldevices == NULL){
+        fprintf(stderr, "No devices found\n");
+        return(2);
+    }
     device = alldevices->name; 
 
 
     pcap_t *handle;
     struct bpf_program fp ; // compiled filer expression
-    char filter_exp[] = "port 23";
+    char filter_exp[] = "tcp port 80";
     bpf_u_int32 mask;   //the net mask 
     bpf_u_int32 net;    // ip of our sniffing device 
         
@@ -72,16 +76,12 @@ int main(int argc, char *argv[])
         mask = 0; 
     }
    
-    /*
-    PRINT_GENERIC(net); 
-    PRINT_GENERIC(mask);
-
-    */
 
     handle = pcap_open_live(device, BUFSIZ, 1, 1000, errbuff);
 
     if(handle == NULL){
         fprintf(stderr, "couldn't open device %s: %s\n", device, errbuff);
+        pcap_freealldevs(alldevices);
         return(2);
     }
 
@@ -89,17 +89,25 @@ int main(int argc, char *argv[])
 
     if(dlt != DLT_EN10MB){
         fprintf(stderr, "Device %s doesn't provide ethenet header\n", device);
+        pcap_close(handle);
+        pcap_freealldevs(alldevices);
         return(2);
     }
 
     if(pcap_compile(handle, &fp, filter_exp, 0, net) == -1){
         fprintf(stderr, "Couldn't parse filter %s : %s\n", filter_exp, pcap_geterr(handle));
+        pcap_freecode(&fp);
+        pcap_close(handle);
+        pcap_freealldevs(alldevices);
         return(2);
     }
   //  print_compiled_filter(fp); 
 
     if(pcap_setfilter(handle, &fp) == -1){
         fprintf(stderr, "Couldn't installl filter %s: %s\n", filter_exp, pcap_geterr(handle));
+        pcap_freecode(&fp);
+        pcap_close(handle);
+        pcap_freealldevs(alldevices);
         return(2);
     }
 
@@ -111,18 +119,11 @@ int main(int argc, char *argv[])
         fprintf(stderr, "No packet captured\n");
         pcap_close(handle);
     }
-    printf("paket len : [%d]\n", header.len);
+    printf("packet len : [%d]\n", header.len);
 
+    pcap_freealldevs(alldevices);
     pcap_freecode(&fp);
     pcap_close(handle);
-
-
-
-
-
-
-
-
 
     return EXIT_SUCCESS;
 }
