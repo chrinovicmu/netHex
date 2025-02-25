@@ -58,6 +58,71 @@ void print_compiled_filter(struct bpf_program bf){
     printf("\n");
 }
 
+void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet){
+
+    static int count = 1; //counts packets
+
+    const struct sniff_ethernet *ethernetl // ehernet header
+    const struct sniff_ip *ipl;             // ip header 
+    const struct sniff_tcp *tcp            // the tcp header 
+    const char *payload                     //packet pay load 
+    
+    int ip_size; 
+    int tcp_size;
+    int payload_size; 
+
+    printf("packet number : d%", count);
+    ++count; 
+
+    //define ethernet header 
+    ethernet = (struct sniff_ethernet*)(packet);
+    ip = (struct sniff_ip)(packet + SIZE_ETHERNET);
+
+    ip_size = IP_HL(ip)* 4;
+    if(ip_size < 20){
+        printf("INVLAID IP HEADER LENGH ; %u bytes\n", ip_size);
+        return;
+    }
+
+    printf("from : %s\n", inet_ntoa(ip->ip_src));
+    printf("from : %s\n", inet_ntoa(ip->ip_dst));
+    
+    //PROTOCOL
+    switch (ip->ip_p){
+        case IPPROTO_TCP:
+            printf("Protocol TCP\n");
+            break;
+        case IPPROTO_UDP:
+            printf("Protocol UDP\n"); 
+            break;
+        case IPPROTO_ICMP:
+            printf("Protocol: ICMP\n"); 
+            break;
+        case IPPROTO_IP:
+            printf("Protocol: IP\n"); 
+            break;
+        default:
+            printf("Protocol: Unknown\n");
+            return; 
+    }
+
+    tcp = (struct_tcp*)(packet + SIZE_ETHERNET + ip_size);
+    tcp_size = TH_OFF(tcp)*4;
+    if(tcp_size < 20){
+        printf("invalid tcp header lenght : %u bytes\n", tcp_size);
+        return;
+    }
+
+    payload = (u_char*)packet( + SIZE_ETHERNET + tcp_size + ip_size);
+    payload_size = ntohs(ip->ip_len) - (ip_size + tcp_size);
+
+    if(payload_size > 0){
+        printf("payload %d bytees :\n", payload_size);
+        print_payload(payload, payload_size);
+    }
+    return;
+
+}
 int main(int argc, char *argv[])
 {
     /*
