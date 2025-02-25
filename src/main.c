@@ -1,3 +1,33 @@
+
+/*
+ * This code is based on the work of Tim Carstens, who developed the original sniffer.c.
+ * 
+ * The original code was distributed under the following license:
+ * 
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions, and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions, and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ * 4. The name "Tim Carstens" may not be used to endorse or promote
+ *    products derived from this software without prior written permission.
+ * 
+ * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <pcap.h>
@@ -18,7 +48,6 @@
              char: printf("%c\n", (x)), \
              char*: printf("%s\n", (x)))
 
-
 void print_compiled_filter(struct bpf_program bf){
     for(int x = 0; x < bf.bf_len; ++x){
         printf("%02x", ((unsigned char *)bf.bf_insns)[x]);
@@ -28,6 +57,7 @@ void print_compiled_filter(struct bpf_program bf){
     }
     printf("\n");
 }
+
 int main(int argc, char *argv[])
 {
     /*
@@ -66,7 +96,7 @@ int main(int argc, char *argv[])
 
     pcap_t *handle;
     struct bpf_program fp ; // compiled filer expression
-    char filter_exp[] = "tcp port 80";
+    char filter_exp[] = "tcp  port 80";
     bpf_u_int32 mask;   //the net mask 
     bpf_u_int32 net;    // ip of our sniffing device 
         
