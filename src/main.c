@@ -1,36 +1,14 @@
-
-/*
- * This code is based on the work of Tim Carstens, who developed the original sniffer.c.
- * 
- * The original code was distributed under the following license:
- * 
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions, and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions, and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 4. The name "Tim Carstens" may not be used to endorse or promote
- *    products derived from this software without prior written permission.
- * 
- * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <pcap.h>
+#include <string.h>
+#include <ctype.h>
+#include <errno.h>
+#include <netinet/ip.h>
+#include <netinet/tcp.h>
+#include <arpa/inet.h>
+
+#define SIZE_ETHERNET 14
 
 #define PRINT_IP(x)\
     printf("%u.%u.%u.%u\n", \
@@ -57,15 +35,99 @@ void print_compiled_filter(struct bpf_program bf){
     }
     printf("\n");
 }
+void print_hex_ascii_line(const u_char *payload, int len, int offset){
 
-void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet){
+    int gap;
+    const u_char *ch;
+
+    printf("%08X", offset);
+
+    ch = payload;
+
+    for(int x = 0;x< len; x++){
+        printf("%02X", *ch);
+        ch++; 
+
+        if(x == 7){
+            printf(" ");
+        }
+    }
+
+    //fill gap 
+    if(len < 16){
+        gap = (16 - len) *3;
+        if(len <= 8){
+            gap++;
+        }
+        while(gap--){
+            printf(" ");
+        }
+    }
+
+    printf("| \n");
+
+
+    ch = payload;
+    for(int x = 0; x < len; ++x){
+        if(isprint(*ch)){
+            printf("%c", *ch);
+        }else{
+            printf(".");
+        }
+        ch++;
+    }
+    printf("\n");
+
+
+}
+void print_payload(const u_char *payload, int len){
+
+    int len_rem = len;          //remaining numner of bytes to print 
+    int line_width = 16;        //bytes per line
+    int line_len;               // number of bytes in a current line 
+    int offset = 0;             //byte offset;
+    const u_char *ch = payload; // postion in payload  
+
+    if(len < 0){
+        return; 
+    }
+
+    //if data fits ome line 
+    if(len <= line_width){
+        print_hex_ascii_line(ch, len, offset);
+        return;
+    }
+
+    for(;;){
+        //compute current line 
+        line_len = (len_rem < line_width) ? len_rem : line_width;
+
+        //print line; 
+        print_hex_ascii_line(ch, line_len, offset);
+
+
+        len_rem = len_rem - line_len;
+
+        ch = ch + line_len;
+
+        offset = offset + line_len;
+
+        if(len_rem <= line_width){
+            print_hex_ascii_line(ch, len_rem, offset);
+            break;
+        }
+    }
+    return;
+}
+
+void process_packet(u_char *args, struct pcap_pkthdr header, const u_char *packet){
 
     static int count = 1; //counts packets
 
-    const struct sniff_ethernet *ethernetl // ehernet header
-    const struct sniff_ip *ipl;             // ip header 
-    const struct sniff_tcp *tcp            // the tcp header 
-    const char *payload                     //packet pay load 
+    const struct ether_header  *ethernet; // ehernet header
+    const struct ip *ip;             // ip header 
+    const struct tcphdr *tcp;            // the tcp header 
+    const char *payload;                     //packet pay load 
     
     int ip_size; 
     int tcp_size;
@@ -75,10 +137,10 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
     ++count; 
 
     //define ethernet header 
-    ethernet = (struct sniff_ethernet*)(packet);
-    ip = (struct sniff_ip)(packet + SIZE_ETHERNET);
+    ethernet = (struct ether_header *)(packet);
+    ip = (struct ip *)(packet + SIZE_ETHERNET);
 
-    ip_size = IP_HL(ip)* 4;
+    ip_size = ip->ip_hl * 4; // ip header length in 4 bytes words
     if(ip_size < 20){
         printf("INVLAID IP HEADER LENGH ; %u bytes\n", ip_size);
         return;
@@ -106,14 +168,17 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
             return; 
     }
 
-    tcp = (struct_tcp*)(packet + SIZE_ETHERNET + ip_size);
-    tcp_size = TH_OFF(tcp)*4;
+    //TCP 
+    tcp = (struct tcphdr*)(packet + SIZE_ETHERNET + ip_size);
+    tcp_size = tcp->th_off * 4; // tcp lenght in 4 bytes words 
+
     if(tcp_size < 20){
         printf("invalid tcp header lenght : %u bytes\n", tcp_size);
         return;
     }
 
-    payload = (u_char*)packet( + SIZE_ETHERNET + tcp_size + ip_size);
+    //PAYLOAD 
+    payload = packet + SIZE_ETHERNET + tcp_size + ip_size;
     payload_size = ntohs(ip->ip_len) - (ip_size + tcp_size);
 
     if(payload_size > 0){
@@ -161,7 +226,7 @@ int main(int argc, char *argv[])
 
     pcap_t *handle;
     struct bpf_program fp ; // compiled filer expression
-    char filter_exp[] = "tcp  port 80";
+    char filter_exp[] = "ip";
     bpf_u_int32 mask;   //the net mask 
     bpf_u_int32 net;    // ip of our sniffing device 
         
@@ -215,6 +280,8 @@ int main(int argc, char *argv[])
         pcap_close(handle);
     }
     printf("packet len : [%d]\n", header.len);
+
+    process_packet(NULL, header, packet);
 
     pcap_freealldevs(alldevices);
     pcap_freecode(&fp);
