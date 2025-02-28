@@ -258,7 +258,7 @@ int main(int argc, char *argv[])
 
     pcap_t *handle;
     struct bpf_program fp; 
-    char filter_exp[] = "ip";
+    char filter_exp[] = "udp";
     bpf_u_int32 mask;   
     bpf_u_int32 net;
         
