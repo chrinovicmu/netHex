@@ -6,6 +6,8 @@
 #include <errno.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
+#include <netinet/udp.h>
+#include <netinet/ip_icmp.h>
 #include <arpa/inet.h>
 
 #define SIZE_ETHERNET 14
@@ -15,7 +17,7 @@
            ((x) >> 24) & 0xFF, \
            ((x) >> 16)  & 0xFF, \
            ((x) >> 8) & 0xFF, \
-           (x) & 0xFF
+           (x) & 0xF)
 
 #define PRINT_GENERIC(x) \
     _Generic((x), \
@@ -30,7 +32,7 @@ void print_compiled_filter(struct bpf_program bf){
     for(int x = 0; x < bf.bf_len; ++x){
         printf("%02x", ((unsigned char *)bf.bf_insns)[x]);
         if((x + 1) % 8 == 0){
-            printf("%s\n");
+            printf("\n");
         }
     }
     printf("\n");
@@ -126,13 +128,15 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
 
     static int count = 1; //counts packets
 
-    const struct ether_header  *ethernet; // ehernet header
-    const struct ip *ip;             // ip header 
-    const struct tcphdr *tcp;            // the tcp header 
-    const char *payload;                     //packet pay load 
+    const struct ether_header  *ethernet; 
+    const struct ip *ip;             
+    const struct tcphdr *tcp;
+    const struct udphdr *udp;
+    const struct icmphdr *icmp;
+    const char *payload;                    
     
     int ip_size; 
-    int tcp_size;
+    int transport_size;
     int payload_size; 
 
     printf("packet number : %d\n", count);
@@ -148,41 +152,64 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
         return;
     }
 
-    printf("from : %s\n", inet_ntoa(ip->ip_src));
-    printf("from : %s\n", inet_ntoa(ip->ip_dst));
+    printf("_from : %s\n", inet_ntoa(ip->ip_src));
+    printf("_to : %s\n", inet_ntoa(ip->ip_dst));
     
     //PROTOCOL
     switch (ip->ip_p){
+
         case IPPROTO_TCP:
             printf("Protocol TCP\n");
+
+            tcp = (struct tcphdr *)(packet + SIZE_ETHERNET + ip_size);
+            transport_size = tcp->th_off * 4; 
+            if(transport_size < 20){
+
+                printf("Invalid Tcp Header lenght : %u bytes\n", transport_size);
+                return;
+            }
+            payload = packet + SIZE_ETHERNET + transport_size + ip_size;
+            payload_size = ntohs(ip->ip_len) - (ip_size + transport_size);
             break;
+
         case IPPROTO_UDP:
             printf("Protocol UDP\n"); 
+            
+            udp = (struct udphdr *)(packet + SIZE_ETHERNET + ip_size); 
+            transport_size = sizeof(struct udphdr);
+
+            printf("source port : %u\n", ntohs(udp->uh_sport));
+            printf("destination port : %u\n", ntohs(udp->uh_dport));
+            printf("UDP lenght: %u\n", ntohs(udp->uh_ulen));
+            printf("UDP checksum: 0x%04x\n", ntohs(udp->uh_sum));
+
+            payload = packet + SIZE_ETHERNET +ip_size + transport_size;
+            payload_size = ntohs(udp->uh_ulen) - transport_size;
             break;
+
         case IPPROTO_ICMP:
             printf("Protocol: ICMP\n"); 
+
+            icmp = (struct icmphdr *)(packet + SIZE_ETHERNET + ip_size);
+            transport_size = sizeof(struct icmphdr);
+
+            printf("ICMP type : %u\n", icmp->type);
+            printf("ICMP Code : %u\n", icmp->code);
+            printf("ICMP Checksum: 0x%04x\n", ntohs(icmp->checksum));
+
+            payload = packet + SIZE_ETHERNET + ip_size + transport_size;
+            payload_size = ntohs(ip->ip_len) - (ip_size + transport_size);
             break;
-        case IPPROTO_IP:
-            printf("Protocol: IP\n"); 
-            break;
+
         default:
             printf("Protocol: Unknown\n");
             return; 
     }
     printf("\n");
 
-    //TCP 
-    tcp = (struct tcphdr*)(packet + SIZE_ETHERNET + ip_size);
-    tcp_size = tcp->th_off * 4; // tcp lenght in 4 bytes words 
-
-    if(tcp_size < 20){
-        printf("invalid tcp header lenght : %u bytes\n", tcp_size);
-        return;
-    }
-
     //PAYLOAD 
-    payload = packet + SIZE_ETHERNET + tcp_size + ip_size;
-    payload_size = ntohs(ip->ip_len) - (ip_size + tcp_size);
+    payload = packet + SIZE_ETHERNET + transport_size + ip_size;
+    payload_size = ntohs(ip->ip_len) - (ip_size + transport_size);
 
     if(payload_size > 0){
         printf("payload %d bytes------------------------------ :\n\n", payload_size);
@@ -223,6 +250,7 @@ int main(int argc, char *argv[])
     }
     if(alldevices == NULL){
         fprintf(stderr, "No devices found\n");
+        pcap_freealldevs(alldevices);
         exit(EXIT_FAILURE);
     }
     device = alldevices->name; 
