@@ -64,7 +64,7 @@ void print_hex_ascii_line(const u_char *payload, int len, int offset){
         }
     }
 
-    printf("| \n");
+    printf("| ");
 
 
     ch = payload;
@@ -107,10 +107,12 @@ void print_payload(const u_char *payload, int len){
 
 
         len_rem = len_rem - line_len;
-
         ch = ch + line_len;
-
         offset = offset + line_len;
+
+        if(len_rem < 0){
+            break; 
+        }
 
         if(len_rem <= line_width){
             print_hex_ascii_line(ch, len_rem, offset);
@@ -120,7 +122,7 @@ void print_payload(const u_char *payload, int len){
     return;
 }
 
-void process_packet(u_char *args, struct pcap_pkthdr header, const u_char *packet){
+void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet){
 
     static int count = 1; //counts packets
 
@@ -133,7 +135,7 @@ void process_packet(u_char *args, struct pcap_pkthdr header, const u_char *packe
     int tcp_size;
     int payload_size; 
 
-    printf("packet number : d%", count);
+    printf("packet number : %d\n", count);
     ++count; 
 
     //define ethernet header 
@@ -167,6 +169,7 @@ void process_packet(u_char *args, struct pcap_pkthdr header, const u_char *packe
             printf("Protocol: Unknown\n");
             return; 
     }
+    printf("\n");
 
     //TCP 
     tcp = (struct tcphdr*)(packet + SIZE_ETHERNET + ip_size);
@@ -182,7 +185,7 @@ void process_packet(u_char *args, struct pcap_pkthdr header, const u_char *packe
     payload_size = ntohs(ip->ip_len) - (ip_size + tcp_size);
 
     if(payload_size > 0){
-        printf("payload %d bytees :\n", payload_size);
+        printf("payload %d bytes------------------------------ :\n\n", payload_size);
         print_payload(payload, payload_size);
     }
     return;
@@ -190,6 +193,7 @@ void process_packet(u_char *args, struct pcap_pkthdr header, const u_char *packe
 }
 int main(int argc, char *argv[])
 {
+    
     /*
     pcap_if_t *alldevs;  
 
@@ -215,20 +219,20 @@ int main(int argc, char *argv[])
 
     if(pcap_findalldevs(&alldevices, errbuff) == -1){
         fprintf(stderr, "Couldn find devices %s\n", errbuff); 
-        return 2; 
+        exit(EXIT_FAILURE);
     }
     if(alldevices == NULL){
         fprintf(stderr, "No devices found\n");
-        return(2);
+        exit(EXIT_FAILURE);
     }
     device = alldevices->name; 
 
 
     pcap_t *handle;
-    struct bpf_program fp ; // compiled filer expression
+    struct bpf_program fp; 
     char filter_exp[] = "ip";
-    bpf_u_int32 mask;   //the net mask 
-    bpf_u_int32 net;    // ip of our sniffing device 
+    bpf_u_int32 mask;   
+    bpf_u_int32 net;
         
     if(pcap_lookupnet(device, &net, &mask, errbuff) == -1){
         fprintf(stderr, "can't get netmask for device %s: %s\n", device, errbuff);
@@ -242,7 +246,8 @@ int main(int argc, char *argv[])
     if(handle == NULL){
         fprintf(stderr, "couldn't open device %s: %s\n", device, errbuff);
         pcap_freealldevs(alldevices);
-        return(2);
+        exit(EXIT_FAILURE);
+    
     }
 
     int dlt = pcap_datalink(handle);
@@ -251,7 +256,7 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Device %s doesn't provide ethenet header\n", device);
         pcap_close(handle);
         pcap_freealldevs(alldevices);
-        return(2);
+        exit(EXIT_FAILURE); 
     }
 
     if(pcap_compile(handle, &fp, filter_exp, 0, net) == -1){
@@ -259,29 +264,25 @@ int main(int argc, char *argv[])
         pcap_freecode(&fp);
         pcap_close(handle);
         pcap_freealldevs(alldevices);
-        return(2);
+        exit(EXIT_FAILURE);
     }
-  //  print_compiled_filter(fp); 
+ //   print_compiled_filter(fp); 
 
     if(pcap_setfilter(handle, &fp) == -1){
         fprintf(stderr, "Couldn't installl filter %s: %s\n", filter_exp, pcap_geterr(handle));
         pcap_freecode(&fp);
         pcap_close(handle);
         pcap_freealldevs(alldevices);
-        return(2);
+        exit(EXIT_FAILURE);
     }
 
-    struct pcap_pkthdr header; // packet header 
+    const struct pcap_pkthdr header; // packet header 
     const u_char *packet; // the actual packet 
     
-    packet = pcap_next(handle, &header);
-    if(packet == NULL){
-        fprintf(stderr, "No packet captured\n");
-        pcap_close(handle);
+    int result = pcap_loop(handle, 10, process_packet, NULL);
+    if(result == -1){
+        fprintf(stderr, "Error L %s\n", pcap_geterr(handle));
     }
-    printf("packet len : [%d]\n", header.len);
-
-    process_packet(NULL, header, packet);
 
     pcap_freealldevs(alldevices);
     pcap_freecode(&fp);
