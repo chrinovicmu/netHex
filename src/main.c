@@ -11,6 +11,8 @@
 #include <arpa/inet.h>
 
 #define SIZE_ETHERNET 14
+#define RING_BUFFER_SIZE 10 
+#define CACHE_LINE_SIZE 64 
 
 #define PRINT_IP(x)\
     printf("%u.%u.%u.%u\n", \
@@ -27,6 +29,51 @@
              double: printf("%lf\n", (x)), \
              char: printf("%c\n", (x)), \
              char*: printf("%s\n", (x)))
+
+struct Packet{
+    u_char *packet;
+    int len;
+    struct timeval time_capture; 
+}
+struct Ring_Buffer{
+    struct Packet * packet_buffer[RING_BUFFER_SIZE];
+    int head;
+    int tail; 
+    int count; 
+    char padding[64-(sizeof(struct Packet*) + (sizeof(int)*3))]; 
+
+}__attribute__((aligned(CACHE_LINE_SIZE));
+
+static Ring_Buffer ring_buffer; 
+
+int is_full(){
+    return ring_buffer->count == RING_BUFFER_SIZE; 
+}
+int is_empty(){
+    return ring_buffer->count == 0; 
+}
+
+void packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet){
+
+    if(is_full()){
+        ring_buffer->tail = (ring_buffer->tail+1) % RING_BUFFER_SIZE; 
+    }
+
+    struct Packet packet_t;
+    packet_t.packet = (u_char *)malloc(header->len);
+    if(!packet_t.packet){
+        fprintf(stderr, "Memory allocation failed\n");
+        return;
+    }
+    memcpy(packet_t.packet, packet, header->len);
+    packet_t.len = header->len;
+    packet_t.time_capture = header->ts; 
+
+    ring_buffer->packet_buffer[ring_buffer->head] = packet_t; 
+    ring_buffer->head = (ring_buffer->head +1)%RING_BUFFER_SIZE;
+    ++ring_buffer->count;
+    return 0;
+}
 
 void print_compiled_filter(struct bpf_program bf){
     for(int x = 0; x < bf.bf_len; ++x){
