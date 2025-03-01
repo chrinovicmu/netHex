@@ -131,27 +131,27 @@ void print_hex_ascii_line(const u_char *payload, int len, int offset){
 }
 void print_payload(const u_char *payload, int len){
 
-    int len_rem = len;          //remaining numner of bytes to print 
-    int line_width = 16;        //bytes per line
-    int line_len;               // number of bytes in a current line 
-    int offset = 0;             //byte offset;
-    const u_char *ch = payload; // postion in payload  
+    int len_rem = len;          
+    int line_width = 16;        
+    int line_len;               
+    int offset = 0;             
+    const u_char *ch = payload; 
 
     if(len < 0){
         return; 
     }
 
-    //if data fits ome line 
+
     if(len <= line_width){
         print_hex_ascii_line(ch, len, offset);
         return;
     }
 
     for(;;){
-        //compute current line 
+         
         line_len = (len_rem < line_width) ? len_rem : line_width;
 
-        //print line; 
+
         print_hex_ascii_line(ch, line_len, offset);
 
 
@@ -173,7 +173,7 @@ void print_payload(const u_char *payload, int len){
 
 void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet){
 
-    static int count = 1; //counts packets
+    static int count = 1; 
 
     const struct ether_header  *ethernet; 
     const struct ip *ip;             
@@ -202,7 +202,7 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
     printf("_from : %s\n", inet_ntoa(ip->ip_src));
     printf("_to : %s\n", inet_ntoa(ip->ip_dst));
     
-    //PROTOCOL
+
     switch (ip->ip_p){
 
         case IPPROTO_TCP:
