@@ -9,6 +9,7 @@
 #include <netinet/udp.h>
 #include <netinet/ip_icmp.h>
 #include <arpa/inet.h>
+#include <stddef.h>
 
 #define SIZE_ETHERNET 14
 #define RING_BUFFER_SIZE 10 
@@ -34,29 +35,28 @@ struct Packet{
     u_char *packet;
     int len;
     struct timeval time_capture; 
-}
+};
 struct Ring_Buffer{
-    struct Packet * packet_buffer[RING_BUFFER_SIZE];
-    int head;
-    int tail; 
-    int count; 
-    char padding[64-(sizeof(struct Packet*) + (sizeof(int)*3))]; 
-
-}__attribute__((aligned(CACHE_LINE_SIZE));
+    struct Packet packet_buffer[RING_BUFFER_SIZE];
+    volatile int head;
+    volatile int tail; 
+    volatile unsigned int count; 
+    char padding[64 - offsetof(struct Ring_Buffer, count) + (sizeof(int)*3)]; 
+}__attribute__((aligned(CACHE_LINE_SIZE)));
 
 static Ring_Buffer ring_buffer; 
 
 int is_full(){
-    return ring_buffer->count == RING_BUFFER_SIZE; 
+    return ring_buffer.count == RING_BUFFER_SIZE; 
 }
 int is_empty(){
-    return ring_buffer->count == 0; 
+    return ring_buffer.count == 0; 
 }
 
 void packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet){
 
     if(is_full()){
-        ring_buffer->tail = (ring_buffer->tail+1) % RING_BUFFER_SIZE; 
+        ring_buffer.tail = (ring_buffer.tail+1) % RING_BUFFER_SIZE; 
     }
 
     struct Packet packet_t;
@@ -66,12 +66,12 @@ void packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char
         return;
     }
     memcpy(packet_t.packet, packet, header->len);
-    packet_t.len = header->len;
+    packet_t.len = header.len;
     packet_t.time_capture = header->ts; 
 
-    ring_buffer->packet_buffer[ring_buffer->head] = packet_t; 
-    ring_buffer->head = (ring_buffer->head +1)%RING_BUFFER_SIZE;
-    ++ring_buffer->count;
+    ring_buffer.packet_buffer[ring_buffer.head] = packet_t; 
+    ring_buffer.head = (ring_buffer.head +1)%RING_BUFFER_SIZE;
+    ++ring_buffer.count;
     return 0;
 }
 
