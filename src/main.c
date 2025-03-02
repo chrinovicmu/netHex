@@ -33,9 +33,10 @@
              char*: printf("%s\n", (x)))
 
 struct Packet{
-    u_char *packet;
-    int len;
-    struct timeval time_capture; 
+    u_char *p_packet;
+    struct pcap_pkthdr *p_header; 
+    int p_len;
+    struct timeval p_time_capture; 
 };
 struct Ring_Buffer{
     struct Packet packet_buffer[RING_BUFFER_SIZE];
@@ -57,7 +58,7 @@ int is_empty(){
 void packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet){
 
     if(is_full()){
-        free(ring_buffer.packet_buffer[ring_buffer.tail].packet);
+        free(ring_buffer.packet_buffer[ring_buffer.tail].p_packet);
         ring_buffer.tail = (ring_buffer.tail+1) % RING_BUFFER_SIZE; 
         if(ring_buffer.count > 0){
             --ring_buffer.count;
@@ -65,14 +66,15 @@ void packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char
     }
 
     struct Packet packet_t;
-    packet_t.packet = (u_char *)malloc(header->len);
-    if(!packet_t.packet){
+    packet_t->p_packet = (u_char *)malloc(header->len);
+    if(!packet_t->p_packet){
         fprintf(stderr, "Memory allocation failed\n");
         return;
     }
-    memcpy(packet_t.packet, packet, header->len);
-    packet_t.len = header->len;
-    packet_t.time_capture = header->ts; 
+    memcpy(packet_t->p_packet, packet, header->len);
+    memcpy(packet_t->p_header, header, sizeof(header));
+    packet_t.p_len = header->len;
+    packet_t.p_time_capture = header->ts; 
 
     ring_buffer.packet_buffer[ring_buffer.head] = packet_t; 
     ring_buffer.head = (ring_buffer.head +1)%RING_BUFFER_SIZE;
@@ -175,7 +177,10 @@ void print_payload(const u_char *payload, int len){
     return;
 }
 
-void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet){
+
+void process_packet(struct Packet packet_t){
+
+    u_char *packet = packet_t->p_packet; 
 
     static int count = 1; 
 
@@ -269,6 +274,18 @@ void process_packet(u_char *args, const struct pcap_pkthdr *header, const u_char
     return;
 
 }
+
+int dequeue_ring_buffer(){
+    if(is_empty()){
+        printf("Buffer is empty\n");
+        return 1;
+    }
+    process_packet(ring_buffer.packet_buffer[ring_buffer.tail]);
+    ring_buffer.tail = (ring_buffer.tail+1) % RING_BUFFER_SIZE;
+    --ring_buffer.count;
+    return 0; 
+
+}
 int main(int argc, char *argv[])
 {
     
@@ -358,10 +375,12 @@ int main(int argc, char *argv[])
     const struct pcap_pkthdr header; // packet header 
     const u_char *packet; // the actual packet 
     
-    int result = pcap_loop(handle, 10, process_packet, NULL);
+    int result = pcap_loop(handle, 10, packet_handler, NULL);
     if(result == -1){
         fprintf(stderr, "Error L %s\n", pcap_geterr(handle));
     }
+    dequeue_ring_buffer();
+
 
     pcap_freealldevs(alldevices);
     pcap_freecode(&fp);
