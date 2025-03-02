@@ -36,14 +36,14 @@ struct Packet{
     u_char *p_packet;
     struct pcap_pkthdr *p_header; 
     int p_len;
-    struct timeval p_time_capture; 
+    struct timeval *p_time_capture; 
 };
 struct Ring_Buffer{
     struct Packet packet_buffer[RING_BUFFER_SIZE];
     volatile int head;
     volatile int tail; 
     volatile unsigned int count; 
-    char padding[CACHE_LINE_SIZE - (sizeof(int)*2) + sizeof(unsigned int)]; 
+    char padding[CACHE_LINE_SIZE - (sizeof(int)*2 + sizeof(unsigned int))]; 
 }__attribute__((aligned(CACHE_LINE_SIZE)));
 
 static struct Ring_Buffer ring_buffer; 
@@ -66,13 +66,18 @@ void packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char
     }
 
     struct Packet packet_t;
-    packet_t->p_packet = (u_char *)malloc(header->len);
-    if(!packet_t->p_packet){
+    packet_t.p_packet = (u_char *)malloc(header->len);
+    if(packet_t.p_packet == NULL){
         fprintf(stderr, "Memory allocation failed\n");
         return;
     }
-    memcpy(packet_t->p_packet, packet, header->len);
-    memcpy(packet_t->p_header, header, sizeof(header));
+    memcpy(packet_t.p_packet, packet, header->len);
+    packet_t.p_header = (struct pcap_pkthdr *)malloc(sizeof(struct pcap_pkthdr));
+    if(packet_t.p_header == NULL){
+        fprintf(stderr, "header memory allocation failed\n");
+        return;
+    }
+    memcpy(packet_t.p_header, header, sizeof(struct pcap_pkthdr));
     packet_t.p_len = header->len;
     packet_t.p_time_capture = header->ts; 
 
@@ -180,7 +185,7 @@ void print_payload(const u_char *payload, int len){
 
 void process_packet(struct Packet packet_t){
 
-    u_char *packet = packet_t->p_packet; 
+    u_char *packet = packet_t.p_packet; 
 
     static int count = 1; 
 
