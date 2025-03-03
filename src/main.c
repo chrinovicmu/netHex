@@ -22,7 +22,6 @@
            ((x) >> 16)  & 0xFF, \
            ((x) >> 8) & 0xFF, \
            (x) & 0xF)
-
 #define PRINT_GENERIC(x) \
     _Generic((x), \
              int: printf("%d\n", (x)), \
@@ -45,7 +44,6 @@ struct Ring_Buffer{
     volatile unsigned int count; 
     char padding[CACHE_LINE_SIZE - (sizeof(int)*2 + sizeof(unsigned int))]; 
 }__attribute__((aligned(CACHE_LINE_SIZE)));
-
 static struct Ring_Buffer ring_buffer; 
 
 int is_full(){
@@ -54,7 +52,6 @@ int is_full(){
 int is_empty(){
     return ring_buffer.count == 0; 
 }
-
 void packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet){
 
     if(is_full()){
@@ -64,7 +61,6 @@ void packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char
             --ring_buffer.count;
         }
     }
-
     struct Packet packet_t;
     packet_t.p_packet = (u_char *)malloc(header->len);
     if(packet_t.p_packet == NULL){
@@ -286,6 +282,7 @@ int dequeue_ring_buffer(){
         return 1;
     }
     process_packet(ring_buffer.packet_buffer[ring_buffer.tail]);
+    printf("PACKET TIME STAMP : ")
     ring_buffer.tail = (ring_buffer.tail+1) % RING_BUFFER_SIZE;
     --ring_buffer.count;
     return 0; 
