@@ -36,7 +36,7 @@ struct Packet{
     u_char *p_packet;
     struct pcap_pkthdr *p_header; 
     int p_len;
-    struct timeval *p_time_capture; 
+    struct timeval p_time_capture; 
 };
 struct Ring_Buffer{
     struct Packet packet_buffer[RING_BUFFER_SIZE];
@@ -185,7 +185,7 @@ void print_payload(const u_char *payload, int len){
 
 void process_packet(struct Packet packet_t){
 
-    u_char *packet = packet_t.p_packet; 
+    u_char* packet = packet_t.p_packet; 
 
     static int count = 1; 
 
