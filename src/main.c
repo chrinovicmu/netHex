@@ -57,19 +57,17 @@ void packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char
     if(is_full()){
         free(ring_buffer.packet_buffer[ring_buffer.tail].p_packet);
         ring_buffer.tail = (ring_buffer.tail+1) % RING_BUFFER_SIZE; 
-        if(ring_buffer.count > 0){ --ring_buffer.count);
-        }
+        if(ring_buffer.count > 0){ --ring_buffer.count;}
     }
     struct Packet packet_t;
     packet_t.p_packet = (u_char *)malloc(header->len);
     if(packet_t.p_packet == NULL){
-        fprintf(stderr, "packet allocation failed\n"); return;
-    }
+        fprintf(stderr, "Memory allocation failed\n");return;}
     memcpy(packet_t.p_packet, packet, header->len);
     packet_t.p_header = (struct pcap_pkthdr *)malloc(sizeof(struct pcap_pkthdr));
     if(packet_t.p_header == NULL){
-        fprintf(stderr, "header allocation failed\n"); return;
-    }
+        fprintf(stderr, "header memory allocation failed\n");return;}
+
     memcpy(packet_t.p_header, header, sizeof(struct pcap_pkthdr));
     packet_t.p_len = header->len;
     packet_t.p_time_capture = header->ts; 
@@ -278,7 +276,7 @@ int dequeue_ring_buffer(){
         return 1;
     }
     process_packet(ring_buffer.packet_buffer[ring_buffer.tail]);
-    printf("PACKET TIME STAMP : ")
+    printf("PACKET TIME STAMP : ");
     ring_buffer.tail = (ring_buffer.tail+1) % RING_BUFFER_SIZE;
     --ring_buffer.count;
     return 0; 
