@@ -81,7 +81,6 @@ void packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char
     ring_buffer.head = (ring_buffer.head +1)%RING_BUFFER_SIZE;
     ++ring_buffer.count;
 }
-
 void print_compiled_filter(struct bpf_program bf){
     for(int x = 0; x < bf.bf_len; ++x){
         printf("%02x", ((unsigned char *)bf.bf_insns)[x]);
