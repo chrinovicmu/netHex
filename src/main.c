@@ -11,6 +11,7 @@
 #include <arpa/inet.h>
 #include <stddef.h>
 #include <sys/types.h>
+#include <stdatomic.h>
 
 #define SIZE_ETHERNET 14
 #define RING_BUFFER_SIZE 10 
@@ -22,6 +23,7 @@
            ((x) >> 16)  & 0xFF, \
            ((x) >> 8) & 0xFF, \
            (x) & 0xF)
+
 #define PRINT_GENERIC(x) \
     _Generic((x), \
              int: printf("%d\n", (x)), \
@@ -37,13 +39,16 @@ struct Packet{
     int p_len;
     struct timeval p_time_capture; 
 };
+
 struct Ring_Buffer{
     struct Packet packet_buffer[RING_BUFFER_SIZE];
-    volatile int head;
-    volatile int tail; 
-    volatile unsigned int count; 
+    _Atomic int head;
+    _Atomic int tail; 
+    _Atomic unsigned int count; 
     char padding[CACHE_LINE_SIZE - (sizeof(int)*2 + sizeof(unsigned int))]; 
+
 }__attribute__((aligned(CACHE_LINE_SIZE)));
+
 static struct Ring_Buffer ring_buffer; 
 
 int is_full(){
@@ -56,17 +61,24 @@ void packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char
 
     if(is_full()){
         free(ring_buffer.packet_buffer[ring_buffer.tail].p_packet);
+
         ring_buffer.tail = (ring_buffer.tail+1) % RING_BUFFER_SIZE; 
         if(ring_buffer.count > 0){ --ring_buffer.count;}
     }
     struct Packet packet_t;
     packet_t.p_packet = (u_char *)malloc(header->len);
+
     if(packet_t.p_packet == NULL){
-        fprintf(stderr, "Memory allocation failed\n");return;}
+        fprintf(stderr, "Memory allocation failed\n");
+        return;
+    }
     memcpy(packet_t.p_packet, packet, header->len);
+
     packet_t.p_header = (struct pcap_pkthdr *)malloc(sizeof(struct pcap_pkthdr));
     if(packet_t.p_header == NULL){
-        fprintf(stderr, "header memory allocation failed\n");return;}
+        fprintf(stderr, "header memory allocation failed\n");
+        return;
+    }
 
     memcpy(packet_t.p_header, header, sizeof(struct pcap_pkthdr));
     packet_t.p_len = header->len;
