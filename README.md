@@ -22,6 +22,7 @@ This is a lightweight, high-performance network packet capture and analysis tool
 - libpcap development libraries
 - GCC compiler with C11 support
 - Linux/UNIX-based operating system
+- GNU Make version 4.3  
 
 ## Dependencies
 
@@ -31,13 +32,14 @@ This is a lightweight, high-performance network packet capture and analysis tool
 ## Compilation
 
 ```bash
-gcc -o packet_sniffer packet_sniffer.c -lpcap
+make build 
 ```
 
 ## Usage
+Will require root privileges 
 
 ```bash
-./packet_sniffer
+make run 
 ```
 
 ## Current Limitations
@@ -45,6 +47,7 @@ gcc -o packet_sniffer packet_sniffer.c -lpcap
 - Limited to UDP packet capture by default
 - Statically configured ring buffer size
 - Minimal error handling
+- non mutlithreaded
 
 ## Roadmap
 
@@ -60,7 +63,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-[To be determined - insert appropriate license]
+[To be determined ]
 
 ## Disclaimer
 
