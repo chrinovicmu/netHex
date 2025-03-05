@@ -1,4 +1,5 @@
 
+#include <pcap/pcap.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,8 +18,10 @@
 #include <pthread.h>
 #include <threads.h>
 #include <unistd.h>
+#include <stdalign.h>
 
 #define SIZE_ETHERNET 14
+#define MAX_PACKET_SIZE 1518 
 #define RING_BUFFER_SIZE 100
 #define CACHE_LINE_SIZE 64
 
@@ -41,8 +44,8 @@
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
 struct Packet{
-    u_char *p_packet;
-    struct pcap_pkthdr *p_header; 
+    u_char p_packet[MAX_PACKET_SIZE];
+    struct pcap_pkthdr p_header; 
     int p_len;
     struct timeval p_time_capture; 
 };
@@ -50,10 +53,11 @@ struct Packet{
 struct Ring_Buffer{
 
     struct Packet packet_buffer[RING_BUFFER_SIZE];
-    _Atomic uint32_t head;
-    _Atomic uint32_t tail; 
-    _Atomic uint32_t count; 
-    _Atomic uint8_t done;
+
+    alignas(CACHE_LINE_SIZE) _Atomic uint32_t head;
+    alignas(CACHE_LINE_SIZE) _Atomic uint32_t tail; 
+    alignas(CACHE_LINE_SIZE) _Atomic uint32_t count; 
+    alignas(CACHE_LINE_SIZE) _Atomic uint8_t done;
 
     pthread_mutex_t mutex;
     pthread_cond_t cond_producer;
@@ -76,9 +80,6 @@ void packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char
 
 
     if(is_full()){
-
-        free(ring_buffer.packet_buffer[ring_buffer.tail].p_packet);
-        free(ring_buffer.packet_buffer[ring_buffer.tail].p_header);
         ring_buffer.tail = (ring_buffer.tail+1) % RING_BUFFER_SIZE; 
 
         if(ring_buffer.count > 0){
@@ -86,30 +87,20 @@ void packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char
         }
     }
 
-    struct Packet packet_t;
-    packet_t.p_packet = (u_char *)malloc(header->len);
+    struct Packet *packet_t;
+    packet_t = &ring_buffer.packet_buffer[ring_buffer.head];
 
-    if(packet_t.p_packet == NULL){
-        fprintf(stderr, "Memory allocation failed\n");
+    if(header->len > MAX_PACKET_SIZE){
+        fprintf(stderr, "packet too large! discarded\n");
         pthread_mutex_unlock(&ring_buffer.mutex);
         return;
     }
-    memcpy(packet_t.p_packet, packet, header->len);
+    memcpy(packet_t->p_packet, packet, header->len);
+    memcpy(&packet_t->p_header, header, sizeof(struct pcap_pkthdr));
 
-    packet_t.p_header = (struct pcap_pkthdr *)malloc(sizeof(struct pcap_pkthdr));
+    packet_t->p_len = header->len;
+    packet_t->p_time_capture = header->ts; 
 
-    if(packet_t.p_header == NULL){
-        fprintf(stderr, "header memory allocation failed\n");
-        free(packet_t.p_packet);
-        pthread_mutex_unlock(&ring_buffer.mutex);
-        return;
-    }
-
-    memcpy(packet_t.p_header, header, sizeof(struct pcap_pkthdr));
-    packet_t.p_len = header->len;
-    packet_t.p_time_capture = header->ts; 
-
-    ring_buffer.packet_buffer[ring_buffer.head] = packet_t; 
     ring_buffer.head = (ring_buffer.head + 1) % RING_BUFFER_SIZE;
     ++ring_buffer.count;
 
@@ -212,9 +203,9 @@ void print_payload(const u_char *payload, int len){
     return;
 }
 
-void process_packet(struct Packet packet_t) {
+void process_packet(struct Packet *packet_t) {
     
-    u_char* packet = (u_char *) packet_t.p_packet; 
+    u_char* packet = (u_char *) packet_t->p_packet; 
     static int count = 1; 
     
 
@@ -238,14 +229,14 @@ void process_packet(struct Packet packet_t) {
     ++count; 
 
     
-    if (packet_t.p_len < SIZE_ETHERNET) {
+    if (packet_t->p_len < SIZE_ETHERNET) {
         printf("Packet too small for Ethernet header\n");
         return;
     }
 
     ethernet = (struct ether_header *)(packet);
 
-    if (packet_t.p_len < SIZE_ETHERNET + sizeof(struct ip)) {
+    if (packet_t->p_len < SIZE_ETHERNET + sizeof(struct ip)) {
         printf("Packet too small for IP header\n");
         return;
     }
@@ -269,7 +260,7 @@ void process_packet(struct Packet packet_t) {
 
             printf("Protocol: TCP\n");
             
-            if (packet_t.p_len < SIZE_ETHERNET + ip_size + sizeof(struct tcphdr)) {
+            if (packet_t->p_len < SIZE_ETHERNET + ip_size + sizeof(struct tcphdr)) {
                 printf("Packet too small for TCP header\n");
                 return;
             }
@@ -290,7 +281,7 @@ void process_packet(struct Packet packet_t) {
 
             printf("Protocol: UDP\n"); 
             
-            if (packet_t.p_len < SIZE_ETHERNET + ip_size + sizeof(struct udphdr)) {
+            if (packet_t->p_len < SIZE_ETHERNET + ip_size + sizeof(struct udphdr)) {
                 printf("Packet too small for UDP header\n");
                 return;
             }
@@ -317,7 +308,7 @@ void process_packet(struct Packet packet_t) {
 
             printf("Protocol: ICMP\n"); 
             
-            if (packet_t.p_len < SIZE_ETHERNET + ip_size + sizeof(struct icmphdr)) {
+            if (packet_t->p_len < SIZE_ETHERNET + ip_size + sizeof(struct icmphdr)) {
                 printf("Packet too small for ICMP header\n");
                 return;
             }
@@ -339,7 +330,7 @@ void process_packet(struct Packet packet_t) {
     }
 
 
-    if (payload_size > 0 && payload_size <= packet_t.p_len) {
+    if (payload_size > 0 && payload_size <= packet_t->p_len) {
         printf("Payload %d bytes------------------------------:\n\n", payload_size);
         print_payload(payload, payload_size);
     }
@@ -450,7 +441,7 @@ void * dequeue_ring_buffer(void *args){
             break;
         }
 
-        struct Packet packet_t = ring_buffer.packet_buffer[ring_buffer.tail]; 
+        struct Packet *packet_t = &ring_buffer.packet_buffer[ring_buffer.tail]; 
         ring_buffer.tail = (ring_buffer.tail + 1) % RING_BUFFER_SIZE;
         --ring_buffer.count;
 
@@ -458,15 +449,14 @@ void * dequeue_ring_buffer(void *args){
 
         printf("\n");
         sleep(1);
+        printf("PACKET SIZE : %u bytes\n", packet_t->p_len);
         process_packet(packet_t);
 
-        struct timeval now = packet_t.p_time_capture;
+        struct timeval now = packet_t->p_time_capture;
         localtime_r(&now.tv_sec, &local_time_buf);
         strftime(buffer, sizeof(buffer), "%H:%M:%S", &local_time_buf);
         printf("\nPacket Time Stamp: %s.%06ld\n", buffer, now.tv_usec);
         
-        free(packet_t.p_packet);
-        free(packet_t.p_header);
     }
 }
 
