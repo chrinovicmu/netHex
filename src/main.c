@@ -3,7 +3,6 @@
 #include <pcap.h>
 #include <string.h>
 #include <ctype.h>
-#include <errno.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
 #include <netinet/udp.h>
@@ -12,10 +11,11 @@
 #include <stddef.h>
 #include <sys/types.h>
 #include <stdatomic.h>
+#include <pthread.h>
 
 #define SIZE_ETHERNET 14
 #define RING_BUFFER_SIZE 10 
-#define CACHE_LINE_SIZE 64 
+#define CACHE_LINE_SIZE 64
 
 #define PRINT_IP(x)\
     printf("%u.%u.%u.%u\n", \
@@ -32,6 +32,8 @@
              double: printf("%lf\n", (x)), \
              char: printf("%c\n", (x)), \
              char*: printf("%s\n", (x)))
+
+pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
 struct Packet{
     u_char *p_packet;
@@ -159,6 +161,7 @@ void print_payload(const u_char *payload, int len){
         print_hex_ascii_line(ch, len, offset);
         return;
     }
+    
 
     for(;;){
          
@@ -183,83 +186,121 @@ void print_payload(const u_char *payload, int len){
     }
     return;
 }
+void process_packet(struct Packet packet_t) {
 
-
-void process_packet(struct Packet packet_t){
-
-    u_char* packet = packet_t.p_packet; 
-
+    u_char* packet = (u_char *) packet_t.p_packet; 
     static int count = 1; 
+    
 
-    const struct ether_header  *ethernet; 
+    if (packet == NULL) {
+        printf("Error: Null packet pointer\n");
+        return;
+    }
+
+    const struct ether_header *ethernet; 
     const struct ip *ip;             
     const struct tcphdr *tcp;
     const struct udphdr *udp;
     const struct icmphdr *icmp;
-    const char *payload;                    
+    const char *payload = NULL;
     
-    int ip_size; 
-    int transport_size;
-    int payload_size; 
-
-    printf("packet number : %d\n", count);
+    int ip_size = 0; 
+    int transport_size = 0;
+    int payload_size = 0;
+    
+    printf("Packet number: %d\n", count);
     ++count; 
 
-    //define ethernet header 
-    ethernet = (struct ether_header *)(packet);
-    ip = (struct ip *)(packet + SIZE_ETHERNET);
-
-    ip_size = ip->ip_hl * 4; // ip header length in 4 bytes words
-    if(ip_size < 20){
-        printf("INVLAID IP HEADER LENGH ; %u bytes\n", ip_size);
+    
+    if (packet_t.p_len < SIZE_ETHERNET) {
+        printf("Packet too small for Ethernet header\n");
         return;
     }
 
-    printf("_from : %s\n", inet_ntoa(ip->ip_src));
-    printf("_to : %s\n", inet_ntoa(ip->ip_dst));
+    ethernet = (struct ether_header *)(packet);
+
+    if (packet_t.p_len < SIZE_ETHERNET + sizeof(struct ip)) {
+        printf("Packet too small for IP header\n");
+        return;
+    }
+
+    ip = (struct ip *)(packet + SIZE_ETHERNET);
+    ip_size = ip->ip_hl * 4; 
+
+
+    if (ip_size < 20 || ip_size > 60) {
+        printf("Invalid IP header length: %u bytes\n", ip_size);
+        return;
+    }
+
+    printf("From: %s\n", inet_ntoa(ip->ip_src));
+    printf("To: %s\n", inet_ntoa(ip->ip_dst));
     
 
-    switch (ip->ip_p){
+    switch (ip->ip_p) {
 
         case IPPROTO_TCP:
-            printf("Protocol TCP\n");
+            printf("Protocol: TCP\n");
+            
+            // Validate TCP header availability
+            if (packet_t.p_len < SIZE_ETHERNET + ip_size + sizeof(struct tcphdr)) {
+                printf("Packet too small for TCP header\n");
+                return;
+            }
 
             tcp = (struct tcphdr *)(packet + SIZE_ETHERNET + ip_size);
             transport_size = tcp->th_off * 4; 
-            if(transport_size < 20){
-
-                printf("Invalid Tcp Header lenght : %u bytes\n", transport_size);
+            
+            if (transport_size < 20 || transport_size > 60) {
+                printf("Invalid TCP header length: %u bytes\n", transport_size);
                 return;
             }
-            payload = packet + SIZE_ETHERNET + transport_size + ip_size;
+            
+            payload = packet + SIZE_ETHERNET + ip_size + transport_size;
             payload_size = ntohs(ip->ip_len) - (ip_size + transport_size);
             break;
 
         case IPPROTO_UDP:
-            printf("Protocol UDP\n"); 
+            printf("Protocol: UDP\n"); 
+            
+            if (packet_t.p_len < SIZE_ETHERNET + ip_size + sizeof(struct udphdr)) {
+                printf("Packet too small for UDP header\n");
+                return;
+            }
             
             udp = (struct udphdr *)(packet + SIZE_ETHERNET + ip_size); 
             transport_size = sizeof(struct udphdr);
-
-            printf("source port : %u\n", ntohs(udp->uh_sport));
-            printf("destination port : %u\n", ntohs(udp->uh_dport));
-            printf("UDP lenght: %u\n", ntohs(udp->uh_ulen));
+            
+            printf("Source port: %u\n", ntohs(udp->uh_sport));
+            printf("Destination port: %u\n", ntohs(udp->uh_dport));
+            printf("UDP length: %u\n", ntohs(udp->uh_ulen));
             printf("UDP checksum: 0x%04x\n", ntohs(udp->uh_sum));
-
-            payload = packet + SIZE_ETHERNET +ip_size + transport_size;
+            
+            payload = packet + SIZE_ETHERNET + ip_size + transport_size;
             payload_size = ntohs(udp->uh_ulen) - transport_size;
+            
+
+            if (payload_size < 0) {
+                printf("Invalid UDP payload size\n");
+                payload_size = 0;
+            }
             break;
 
         case IPPROTO_ICMP:
             printf("Protocol: ICMP\n"); 
+            
+            if (packet_t.p_len < SIZE_ETHERNET + ip_size + sizeof(struct icmphdr)) {
+                printf("Packet too small for ICMP header\n");
+                return;
+            }
 
             icmp = (struct icmphdr *)(packet + SIZE_ETHERNET + ip_size);
             transport_size = sizeof(struct icmphdr);
-
-            printf("ICMP type : %u\n", icmp->type);
-            printf("ICMP Code : %u\n", icmp->code);
+            
+            printf("ICMP type: %u\n", icmp->type);
+            printf("ICMP Code: %u\n", icmp->code);
             printf("ICMP Checksum: 0x%04x\n", ntohs(icmp->checksum));
-
+            
             payload = packet + SIZE_ETHERNET + ip_size + transport_size;
             payload_size = ntohs(ip->ip_len) - (ip_size + transport_size);
             break;
@@ -268,31 +309,34 @@ void process_packet(struct Packet packet_t){
             printf("Protocol: Unknown\n");
             return; 
     }
-    printf("\n");
 
-    //PAYLOAD 
-    payload = packet + SIZE_ETHERNET + transport_size + ip_size;
-    payload_size = ntohs(ip->ip_len) - (ip_size + transport_size);
 
-    if(payload_size > 0){
-        printf("payload %d bytes------------------------------ :\n\n", payload_size);
+    if (payload_size > 0 && payload_size <= packet_t.p_len) {
+        printf("Payload %d bytes------------------------------:\n\n", payload_size);
         print_payload(payload, payload_size);
     }
-    return;
-
 }
 
-int dequeue_ring_buffer(){
+int dequeue_ring_buffer(void){
+
     if(is_empty()){
         printf("Buffer is empty\n");
         return 1;
     }
     process_packet(ring_buffer.packet_buffer[ring_buffer.tail]);
-    printf("PACKET TIME STAMP : ");
-    ring_buffer.tail = (ring_buffer.tail+1) % RING_BUFFER_SIZE;
-    --ring_buffer.count;
-    return 0; 
+    
+    struct timeval now = ring_buffer.packet_buffer[ring_buffer.tail].p_time_capture; 
+    struct tm *local_time = localtime(&now.tv_sec); 
 
+    char buffer[100];    
+    strftime(buffer, sizeof(buffer), "%H:%M:%S", local_time);
+    
+    printf("\nPacket Time Stamp: %s.%06ld\n", buffer, now.tv_usec);
+    
+    ring_buffer.tail = (ring_buffer.tail + 1) % RING_BUFFER_SIZE;
+    --ring_buffer.count;
+    
+    return 0; 
 }
 int main(int argc, char *argv[])
 {
@@ -334,7 +378,7 @@ int main(int argc, char *argv[])
 
     pcap_t *handle;
     struct bpf_program fp; 
-    char filter_exp[] = "udp";
+    char filter_exp[] = "ip";
     bpf_u_int32 mask;   
     bpf_u_int32 net;
         
@@ -342,8 +386,7 @@ int main(int argc, char *argv[])
         fprintf(stderr, "can't get netmask for device %s: %s\n", device, errbuff);
         net = 0;
         mask = 0; 
-    }
-   
+    } 
 
     handle = pcap_open_live(device, BUFSIZ, 1, 1000, errbuff);
 
