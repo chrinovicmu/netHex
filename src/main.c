@@ -1,8 +1,10 @@
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <pcap.h>
 #include <string.h>
+#include <stdint.h>
 #include <ctype.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
@@ -13,6 +15,8 @@
 #include <sys/types.h>
 #include <stdatomic.h>
 #include <pthread.h>
+#include <threads.h>
+#include <unistd.h>
 
 #define SIZE_ETHERNET 14
 #define RING_BUFFER_SIZE 100
@@ -46,10 +50,10 @@ struct Packet{
 struct Ring_Buffer{
 
     struct Packet packet_buffer[RING_BUFFER_SIZE];
-    _Atomic int head;
-    _Atomic int tail; 
-    _Atomic unsigned int count; 
-    _Atomic int done;
+    _Atomic uint32_t head;
+    _Atomic uint32_t tail; 
+    _Atomic uint32_t count; 
+    _Atomic uint8_t done;
 
     pthread_mutex_t mutex;
     pthread_cond_t cond_producer;
@@ -117,12 +121,14 @@ void print_compiled_filter(struct bpf_program bf){
 
     for(int x = 0; x < bf.bf_len; ++x){
         printf("%02x", ((unsigned char *)bf.bf_insns)[x]);
+
         if((x + 1) % 8 == 0){
             printf("\n");
         }
     }
     printf("\n");
 }
+
 void print_hex_ascii_line(const u_char *payload, int len, int offset){
 
     int gap;
@@ -141,7 +147,6 @@ void print_hex_ascii_line(const u_char *payload, int len, int offset){
         }
     }
 
-    //fill gap 
     if(len < 16){
         gap = (16 - len) *3;
         if(len <= 8){
@@ -154,8 +159,8 @@ void print_hex_ascii_line(const u_char *payload, int len, int offset){
 
     printf("| ");
 
-
     ch = payload;
+
     for(int x = 0; x < len; ++x){
         if(isprint(*ch)){
             printf("%c", *ch);
@@ -166,8 +171,8 @@ void print_hex_ascii_line(const u_char *payload, int len, int offset){
     }
     printf("\n");
 
-
 }
+
 void print_payload(const u_char *payload, int len){
 
     int len_rem = len;          
@@ -180,20 +185,16 @@ void print_payload(const u_char *payload, int len){
         return; 
     }
 
-
     if(len <= line_width){
         print_hex_ascii_line(ch, len, offset);
         return;
-    }
-    
+    }    
 
     for(;;){
          
         line_len = (len_rem < line_width) ? len_rem : line_width;
 
-
         print_hex_ascii_line(ch, line_len, offset);
-
 
         len_rem = len_rem - line_len;
         ch = ch + line_len;
@@ -210,6 +211,7 @@ void print_payload(const u_char *payload, int len){
     }
     return;
 }
+
 void process_packet(struct Packet packet_t) {
     
     u_char* packet = (u_char *) packet_t.p_packet; 
@@ -259,7 +261,7 @@ void process_packet(struct Packet packet_t) {
 
     printf("From: %s\n", inet_ntoa(ip->ip_src));
     printf("To: %s\n", inet_ntoa(ip->ip_dst));
-    
+
 
     switch (ip->ip_p) {
 
@@ -267,7 +269,6 @@ void process_packet(struct Packet packet_t) {
 
             printf("Protocol: TCP\n");
             
-            // Validate TCP header availability
             if (packet_t.p_len < SIZE_ETHERNET + ip_size + sizeof(struct tcphdr)) {
                 printf("Packet too small for TCP header\n");
                 return;
@@ -429,9 +430,10 @@ void *capture_packets(void *args){
     pcap_freecode(&fp);
     pcap_close(handle);
 
+    return NULL;
 }
 
-void * dequeue_ring_buffer(void *agrs){
+void * dequeue_ring_buffer(void *args){
 
     struct tm local_time_buf; 
     char buffer[100];
@@ -455,6 +457,7 @@ void * dequeue_ring_buffer(void *agrs){
         pthread_mutex_unlock(&ring_buffer.mutex);
 
         printf("\n");
+        sleep(1);
         process_packet(packet_t);
 
         struct timeval now = packet_t.p_time_capture;
@@ -466,6 +469,8 @@ void * dequeue_ring_buffer(void *agrs){
         free(packet_t.p_header);
     }
 }
+
+
 int main(int argc, char *argv[])
 {
     pthread_mutex_init(&ring_buffer.mutex, NULL);
