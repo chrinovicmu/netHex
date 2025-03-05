@@ -1,3 +1,4 @@
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <pcap.h>
@@ -14,7 +15,7 @@
 #include <pthread.h>
 
 #define SIZE_ETHERNET 14
-#define RING_BUFFER_SIZE 10 
+#define RING_BUFFER_SIZE 100
 #define CACHE_LINE_SIZE 64
 
 #define PRINT_IP(x)\
@@ -43,10 +44,16 @@ struct Packet{
 };
 
 struct Ring_Buffer{
+
     struct Packet packet_buffer[RING_BUFFER_SIZE];
     _Atomic int head;
     _Atomic int tail; 
     _Atomic unsigned int count; 
+    _Atomic int done;
+
+    pthread_mutex_t mutex;
+    pthread_cond_t cond_producer;
+    pthread_cond_t cond_consumer; 
     char padding[CACHE_LINE_SIZE - (sizeof(int)*2 + sizeof(unsigned int))]; 
 
 }__attribute__((aligned(CACHE_LINE_SIZE)));
@@ -61,24 +68,36 @@ int is_empty(){
 }
 void packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet){
 
-    if(is_full()){
-        free(ring_buffer.packet_buffer[ring_buffer.tail].p_packet);
+    pthread_mutex_lock(&ring_buffer.mutex);
 
+
+    if(is_full()){
+
+        free(ring_buffer.packet_buffer[ring_buffer.tail].p_packet);
+        free(ring_buffer.packet_buffer[ring_buffer.tail].p_header);
         ring_buffer.tail = (ring_buffer.tail+1) % RING_BUFFER_SIZE; 
-        if(ring_buffer.count > 0){ --ring_buffer.count;}
+
+        if(ring_buffer.count > 0){
+            --ring_buffer.count;
+        }
     }
+
     struct Packet packet_t;
     packet_t.p_packet = (u_char *)malloc(header->len);
 
     if(packet_t.p_packet == NULL){
         fprintf(stderr, "Memory allocation failed\n");
+        pthread_mutex_unlock(&ring_buffer.mutex);
         return;
     }
     memcpy(packet_t.p_packet, packet, header->len);
 
     packet_t.p_header = (struct pcap_pkthdr *)malloc(sizeof(struct pcap_pkthdr));
+
     if(packet_t.p_header == NULL){
         fprintf(stderr, "header memory allocation failed\n");
+        free(packet_t.p_packet);
+        pthread_mutex_unlock(&ring_buffer.mutex);
         return;
     }
 
@@ -87,10 +106,15 @@ void packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char
     packet_t.p_time_capture = header->ts; 
 
     ring_buffer.packet_buffer[ring_buffer.head] = packet_t; 
-    ring_buffer.head = (ring_buffer.head +1)%RING_BUFFER_SIZE;
+    ring_buffer.head = (ring_buffer.head + 1) % RING_BUFFER_SIZE;
     ++ring_buffer.count;
+
+    pthread_cond_signal(&ring_buffer.cond_consumer);
+    pthread_mutex_unlock(&ring_buffer.mutex);
 }
+
 void print_compiled_filter(struct bpf_program bf){
+
     for(int x = 0; x < bf.bf_len; ++x){
         printf("%02x", ((unsigned char *)bf.bf_insns)[x]);
         if((x + 1) % 8 == 0){
@@ -187,7 +211,7 @@ void print_payload(const u_char *payload, int len){
     return;
 }
 void process_packet(struct Packet packet_t) {
-
+    
     u_char* packet = (u_char *) packet_t.p_packet; 
     static int count = 1; 
     
@@ -240,6 +264,7 @@ void process_packet(struct Packet packet_t) {
     switch (ip->ip_p) {
 
         case IPPROTO_TCP:
+
             printf("Protocol: TCP\n");
             
             // Validate TCP header availability
@@ -261,6 +286,7 @@ void process_packet(struct Packet packet_t) {
             break;
 
         case IPPROTO_UDP:
+
             printf("Protocol: UDP\n"); 
             
             if (packet_t.p_len < SIZE_ETHERNET + ip_size + sizeof(struct udphdr)) {
@@ -287,6 +313,7 @@ void process_packet(struct Packet packet_t) {
             break;
 
         case IPPROTO_ICMP:
+
             printf("Protocol: ICMP\n"); 
             
             if (packet_t.p_len < SIZE_ETHERNET + ip_size + sizeof(struct icmphdr)) {
@@ -317,48 +344,7 @@ void process_packet(struct Packet packet_t) {
     }
 }
 
-int dequeue_ring_buffer(void){
-
-    if(is_empty()){
-        printf("Buffer is empty\n");
-        return 1;
-    }
-    process_packet(ring_buffer.packet_buffer[ring_buffer.tail]);
-    
-    struct timeval now = ring_buffer.packet_buffer[ring_buffer.tail].p_time_capture; 
-    struct tm *local_time = localtime(&now.tv_sec); 
-
-    char buffer[100];    
-    strftime(buffer, sizeof(buffer), "%H:%M:%S", local_time);
-    
-    printf("\nPacket Time Stamp: %s.%06ld\n", buffer, now.tv_usec);
-    
-    ring_buffer.tail = (ring_buffer.tail + 1) % RING_BUFFER_SIZE;
-    --ring_buffer.count;
-    
-    return 0; 
-}
-int main(int argc, char *argv[])
-{
-    
-    /*
-    pcap_if_t *alldevs;  
-
-    char *device;
-    char errbuff[PCAP_ERRBUF_SIZE];
-
-    #pragma GCC diagnostic push 
-    #pragma GCC diagnostic ignored "-Wdeprecated-declarations";
-
-    device = pcap_lookupdev(errbuff);
-
-    #pragma GCC diagnostic pop
-
-    if(device == NULL){
-        fprintf(stderr, "couldn't find defualt device\n", errbuff);
-        return(2);
-    }
-    */
+void *capture_packets(void *args){
     
     char *device; 
     pcap_if_t *alldevices;
@@ -391,6 +377,7 @@ int main(int argc, char *argv[])
     handle = pcap_open_live(device, BUFSIZ, 1, 1000, errbuff);
 
     if(handle == NULL){
+
         fprintf(stderr, "couldn't open device %s: %s\n", device, errbuff);
         pcap_freealldevs(alldevices);
         exit(EXIT_FAILURE);
@@ -400,6 +387,7 @@ int main(int argc, char *argv[])
     int dlt = pcap_datalink(handle);
 
     if(dlt != DLT_EN10MB){
+
         fprintf(stderr, "Device %s doesn't provide ethenet header\n", device);
         pcap_close(handle);
         pcap_freealldevs(alldevices);
@@ -407,6 +395,7 @@ int main(int argc, char *argv[])
     }
 
     if(pcap_compile(handle, &fp, filter_exp, 0, net) == -1){
+
         fprintf(stderr, "Couldn't parse filter %s : %s\n", filter_exp, pcap_geterr(handle));
         pcap_freecode(&fp);
         pcap_close(handle);
@@ -416,6 +405,7 @@ int main(int argc, char *argv[])
  //   print_compiled_filter(fp); 
 
     if(pcap_setfilter(handle, &fp) == -1){
+
         fprintf(stderr, "Couldn't installl filter %s: %s\n", filter_exp, pcap_geterr(handle));
         pcap_freecode(&fp);
         pcap_close(handle);
@@ -426,16 +416,87 @@ int main(int argc, char *argv[])
     const struct pcap_pkthdr header; // packet header 
     const u_char *packet; // the actual packet 
     
-    int result = pcap_loop(handle, 10, packet_handler, NULL);
-    if(result == -1){
-        fprintf(stderr, "Error L %s\n", pcap_geterr(handle));
-    }
-    dequeue_ring_buffer();
+    int result = pcap_loop(handle, 100, packet_handler, NULL);
 
+    if(result == -1){
+        fprintf(stderr, "Error in loop %s\n", pcap_geterr(handle));
+    }
+
+    ring_buffer.done = 1;
+    pthread_cond_signal(&ring_buffer.cond_consumer);
 
     pcap_freealldevs(alldevices);
     pcap_freecode(&fp);
     pcap_close(handle);
+
+}
+
+void * dequeue_ring_buffer(void *agrs){
+
+    struct tm local_time_buf; 
+    char buffer[100];
+
+    while(1){
+
+        pthread_mutex_lock(&ring_buffer.mutex); 
+
+        while(is_empty() && !ring_buffer.done){
+            pthread_cond_wait(&ring_buffer.cond_consumer, &ring_buffer.mutex);
+        }
+        if(ring_buffer.count == 0 && ring_buffer.done){
+            pthread_mutex_unlock(&ring_buffer.mutex);
+            break;
+        }
+
+        struct Packet packet_t = ring_buffer.packet_buffer[ring_buffer.tail]; 
+        ring_buffer.tail = (ring_buffer.tail + 1) % RING_BUFFER_SIZE;
+        --ring_buffer.count;
+
+        pthread_mutex_unlock(&ring_buffer.mutex);
+
+        printf("\n");
+        process_packet(packet_t);
+
+        struct timeval now = packet_t.p_time_capture;
+        localtime_r(&now.tv_sec, &local_time_buf);
+        strftime(buffer, sizeof(buffer), "%H:%M:%S", &local_time_buf);
+        printf("\nPacket Time Stamp: %s.%06ld\n", buffer, now.tv_usec);
+        
+        free(packet_t.p_packet);
+        free(packet_t.p_header);
+    }
+}
+int main(int argc, char *argv[])
+{
+    pthread_mutex_init(&ring_buffer.mutex, NULL);
+    pthread_cond_init(&ring_buffer.cond_producer, NULL);
+    pthread_cond_init(&ring_buffer.cond_consumer, NULL);
+
+    pthread_t producer_thread;
+    if(pthread_create(&producer_thread, NULL, capture_packets, NULL)!= 0 ){
+        fprintf(stderr, "Error creating capture thread\n");
+        exit(EXIT_FAILURE);
+    }
+
+    pthread_t consumer_thread;
+    if(pthread_create(&consumer_thread, NULL, dequeue_ring_buffer, NULL)!= 0){
+        fprintf(stderr, "Error creating consumer thread\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if(pthread_join(producer_thread, NULL) != 0){
+        fprintf(stderr, "Erro joining producer thread\n");
+        exit(EXIT_FAILURE);
+    }
+    if(pthread_join(consumer_thread, NULL) != 0){
+        fprintf(stderr, "Error joining consumer thread\n");
+        exit(EXIT_FAILURE);
+    }
+
+    pthread_mutex_destroy(&ring_buffer.mutex);
+    pthread_cond_destroy(&ring_buffer.cond_producer); 
+    pthread_cond_destroy(&ring_buffer.cond_consumer);
+
 
     return EXIT_SUCCESS;
 }

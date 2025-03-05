@@ -1,7 +1,7 @@
 
 CC := gcc
 CFLAGS := -O2
-LDFLAGS := -lpcap 
+LDFLAGS := -lpcap -pthread
 SRC_DIR := src
 TARGET := ./main
 
