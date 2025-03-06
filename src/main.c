@@ -21,7 +21,7 @@
 #include <stdalign.h>
 
 #define SIZE_ETHERNET 14
-#define MAX_PACKET_SIZE 1518 
+#define NETWORK_MTU 1518 
 #define RING_BUFFER_SIZE 10
 #define CACHE_LINE_SIZE 64
 
@@ -44,7 +44,7 @@
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
 struct Packet{
-    u_char p_packet[MAX_PACKET_SIZE];
+    u_char p_packet[NETWORK_MTU];
     struct pcap_pkthdr p_header; 
     int p_len;
     struct timeval p_time_capture; 
@@ -90,7 +90,7 @@ void packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char
     struct Packet *packet_t;
     packet_t = &ring_buffer.packet_buffer[ring_buffer.head];
 
-    if(header->len > MAX_PACKET_SIZE){
+    if(header->len > NETWORK_MTU){
         fprintf(stderr, "packet too large! discarded\n");
         pthread_mutex_unlock(&ring_buffer.mutex);
         return;
