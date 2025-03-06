@@ -22,7 +22,7 @@
 
 #define SIZE_ETHERNET 14
 #define MAX_PACKET_SIZE 1518 
-#define RING_BUFFER_SIZE 100
+#define RING_BUFFER_SIZE 10
 #define CACHE_LINE_SIZE 64
 
 #define PRINT_IP(x)\
@@ -408,7 +408,7 @@ void *capture_packets(void *args){
     const struct pcap_pkthdr header; // packet header 
     const u_char *packet; // the actual packet 
     
-    int result = pcap_loop(handle, 100, packet_handler, NULL);
+    int result = pcap_loop(handle, RING_BUFFER_SIZE, packet_handler, NULL);
 
     if(result == -1){
         fprintf(stderr, "Error in loop %s\n", pcap_geterr(handle));

@@ -20,6 +20,11 @@ clean:
 
 test: build
 	valgrind --leak-check=full --track-origins=yes --show-leak-kinds=all --verbose ./main
+
+perf: build 
+	@echo "RUNNING perf on : $(TARGET)"
+	sudo perf stat -e cache-misses,cache-references $(TARGET) > /dev/null 2>&1
+	
 .PHONY: git-push 
 git-push:
 	@git add .
