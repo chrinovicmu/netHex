@@ -1,4 +1,4 @@
-#include <netinet/in.h>
+
 #include <pcap/pcap.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -245,7 +245,7 @@ void process_packet(struct Packet *packet_t) {
     ip_size = ip->ip_hl * 4; 
 
 
-    if (ip_size < 20 || ip_size > 60 || SIZE_ETHERNET + ip_size > packet_t->p_len) {
+    if (ip_size < 20 || ip_size > 60) {
         printf("Invalid IP header length: %u bytes\n", ip_size);
         return;
     }
@@ -295,12 +295,8 @@ void process_packet(struct Packet *packet_t) {
             printf("UDP checksum: 0x%04x\n", ntohs(udp->uh_sum));
             
             payload = packet + SIZE_ETHERNET + ip_size + transport_size;
-            int udp_len = ntohs(udp->uh_ulen);
-            if(udp_len < transport_size || SIZE_ETHERNET + ip_size + udp_len > packet_t->p_len){
-                printf("invalid udp length field\n");
-                return;
-            }
             payload_size = ntohs(udp->uh_ulen) - transport_size;
+            
 
             if (payload_size < 0) {
                 printf("Invalid UDP payload size\n");
@@ -462,7 +458,6 @@ void * dequeue_ring_buffer(void *args){
         printf("\nPacket Time Stamp: %s.%06ld\n", buffer, now.tv_usec);
         
     }
-    return NULL; 
 }
 
 
