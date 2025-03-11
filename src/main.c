@@ -97,6 +97,7 @@ void packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char
         pthread_mutex_unlock(&ring_buffer.mutex);
         return;
     }
+
     memcpy(pk->p_packet, packet, header->len);
     memcpy(&pk->p_header, header, sizeof(struct pcap_pkthdr));
 
@@ -385,7 +386,7 @@ void *capture_packets(void *args)
 
     pcap_t *handle;
     struct bpf_program fp; 
-    char filter_exp[] = "ip";
+    char filter_exp[] = "udp";
     bpf_u_int32 mask;   
     bpf_u_int32 net;
         
