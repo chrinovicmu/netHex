@@ -1,4 +1,4 @@
-# Network Packet Sniffer
+# Pack-Sniff : Network Packet Sniffer
 
 ## Overview
 
@@ -12,9 +12,8 @@ This is a lightweight, high-performance network packet capture and analysis tool
 
 - Live network interface packet capture
 - Support for multiple network protocols (TCP, UDP, ICMP)
-- Detailed packet payload analysis
 - Configurable packet filtering
-- Ring buffer-based packet storage
+- Concurrent capturing and processing 
 - Hex and ASCII payload representation
 
 ## Prerequisites
@@ -41,22 +40,6 @@ Will require root privileges
 ```bash
 make run 
 ```
-
-## Current Limitations
-
-- Limited to UDP packet capture by default
-- Statically configured ring buffer size
-- Minimal error handling
-- non mutlithreaded
-
-## Roadmap
-
-- [ ] Enhance protocol support
-- [ ] Implement more robust error handling
-- [ ] Add configurable filtering options
-- [ ] Improve memory management
-- [ ] Create logging mechanisms
-
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
