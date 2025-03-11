@@ -43,16 +43,16 @@
 
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
-struct Packet{
+struct packet_t{
     u_char p_packet[NETWORK_MTU];
     struct pcap_pkthdr p_header; 
     int p_len;
     struct timeval p_time_capture; 
 };
 
-struct Ring_Buffer{
+struct ring_buffer_t{
 
-    struct Packet packet_buffer[RING_BUFFER_SIZE];
+    struct packet_t packet_buffer[RING_BUFFER_SIZE];
 
     alignas(CACHE_LINE_SIZE) _Atomic uint32_t head;
     alignas(CACHE_LINE_SIZE) _Atomic uint32_t tail; 
@@ -66,7 +66,7 @@ struct Ring_Buffer{
 
 }__attribute__((aligned(CACHE_LINE_SIZE)));
 
-static struct Ring_Buffer ring_buffer; 
+static struct ring_buffer_t ring_buffer; 
 
 int is_full(){
     return ring_buffer.count == RING_BUFFER_SIZE; 
@@ -74,12 +74,14 @@ int is_full(){
 int is_empty(){
     return ring_buffer.count == 0; 
 }
-void packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet){
+void packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)
+{
 
     pthread_mutex_lock(&ring_buffer.mutex);
 
 
-    if(is_full()){
+    if(is_full())
+    {
         ring_buffer.tail = (ring_buffer.tail+1) % RING_BUFFER_SIZE; 
 
         if(ring_buffer.count > 0){
@@ -87,19 +89,19 @@ void packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char
         }
     }
 
-    struct Packet *packet_t;
-    packet_t = &ring_buffer.packet_buffer[ring_buffer.head];
+    struct packet_t *pk;
+    pk = &ring_buffer.packet_buffer[ring_buffer.head];
 
     if(header->len > NETWORK_MTU){
         fprintf(stderr, "packet too large! discarded\n");
         pthread_mutex_unlock(&ring_buffer.mutex);
         return;
     }
-    memcpy(packet_t->p_packet, packet, header->len);
-    memcpy(&packet_t->p_header, header, sizeof(struct pcap_pkthdr));
+    memcpy(pk->p_packet, packet, header->len);
+    memcpy(&pk->p_header, header, sizeof(struct pcap_pkthdr));
 
-    packet_t->p_len = header->len;
-    packet_t->p_time_capture = header->ts; 
+    pk->p_len = header->len;
+    pk->p_time_capture = header->ts; 
 
     ring_buffer.head = (ring_buffer.head + 1) % RING_BUFFER_SIZE;
     ++ring_buffer.count;
@@ -108,9 +110,11 @@ void packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char
     pthread_mutex_unlock(&ring_buffer.mutex);
 }
 
-void print_compiled_filter(struct bpf_program bf){
+void print_compiled_filter(struct bpf_program bf)
+{
 
-    for(int x = 0; x < bf.bf_len; ++x){
+    for(int x = 0; x < bf.bf_len; ++x)
+    {
         printf("%02x", ((unsigned char *)bf.bf_insns)[x]);
 
         if((x + 1) % 8 == 0){
@@ -120,7 +124,8 @@ void print_compiled_filter(struct bpf_program bf){
     printf("\n");
 }
 
-void print_hex_ascii_line(const u_char *payload, int len, int offset){
+void print_hex_ascii_line(const u_char *payload, int len, int offset)
+{
 
     int gap;
     const u_char *ch;
@@ -164,7 +169,8 @@ void print_hex_ascii_line(const u_char *payload, int len, int offset){
 
 }
 
-void print_payload(const u_char *payload, int len){
+void print_payload(const u_char *payload, int len)
+{
 
     int len_rem = len;          
     int line_width = 16;        
@@ -176,12 +182,14 @@ void print_payload(const u_char *payload, int len){
         return; 
     }
 
-    if(len <= line_width){
+    if(len <= line_width)
+    {
         print_hex_ascii_line(ch, len, offset);
         return;
     }    
 
-    for(;;){
+    for(;;)
+    {
          
         line_len = (len_rem < line_width) ? len_rem : line_width;
 
@@ -195,7 +203,8 @@ void print_payload(const u_char *payload, int len){
             break; 
         }
 
-        if(len_rem <= line_width){
+        if(len_rem <= line_width)
+        {
             print_hex_ascii_line(ch, len_rem, offset);
             break;
         }
@@ -203,13 +212,15 @@ void print_payload(const u_char *payload, int len){
     return;
 }
 
-void process_packet(struct Packet *packet_t) {
+void process_packet(struct packet_t *pk)
+{
     
-    u_char* packet = (u_char *) packet_t->p_packet; 
+    u_char* packet = (u_char *) pk->p_packet; 
     static int count = 1; 
     
 
-    if (packet == NULL) {
+    if (packet == NULL) 
+    {
         printf("Error: Null packet pointer\n");
         return;
     }
@@ -225,19 +236,21 @@ void process_packet(struct Packet *packet_t) {
     int transport_size = 0;
     int payload_size = 0;
     
-    printf("Packet number: %d\n", count);
+    printf("packet_t number: %d\n", count);
     ++count; 
 
     
-    if (packet_t->p_len < SIZE_ETHERNET) {
-        printf("Packet too small for Ethernet header\n");
+    if (pk->p_len < SIZE_ETHERNET)
+    {
+        printf("packet_t too small for Ethernet header\n");
         return;
     }
 
     ethernet = (struct ether_header *)(packet);
 
-    if (packet_t->p_len < SIZE_ETHERNET + sizeof(struct ip)) {
-        printf("Packet too small for IP header\n");
+    if (pk->p_len < SIZE_ETHERNET + sizeof(struct ip)) 
+    {
+        printf("packet_t too small for IP header\n");
         return;
     }
 
@@ -245,7 +258,8 @@ void process_packet(struct Packet *packet_t) {
     ip_size = ip->ip_hl * 4; 
 
 
-    if (ip_size < 20 || ip_size > 60 || SIZE_ETHERNET + ip_size > packet_t->p_len) {
+    if (ip_size < 20 || ip_size > 60 || SIZE_ETHERNET + ip_size > pk->p_len) 
+    {
         printf("Invalid IP header length: %u bytes\n", ip_size);
         return;
     }
@@ -254,21 +268,24 @@ void process_packet(struct Packet *packet_t) {
     printf("To: %s\n", inet_ntoa(ip->ip_dst));
 
 
-    switch (ip->ip_p) {
+    switch (ip->ip_p)
+    {
 
         case IPPROTO_TCP:
 
             printf("Protocol: TCP\n");
             
-            if (packet_t->p_len < SIZE_ETHERNET + ip_size + sizeof(struct tcphdr)) {
-                printf("Packet too small for TCP header\n");
+            if (pk->p_len < SIZE_ETHERNET + ip_size + sizeof(struct tcphdr))
+            {
+                printf("packet_t too small for TCP header\n");
                 return;
             }
 
             tcp = (struct tcphdr *)(packet + SIZE_ETHERNET + ip_size);
             transport_size = tcp->th_off * 4; 
             
-            if (transport_size < 20 || transport_size > 60) {
+            if (transport_size < 20 || transport_size > 60)
+            {
                 printf("Invalid TCP header length: %u bytes\n", transport_size);
                 return;
             }
@@ -281,8 +298,9 @@ void process_packet(struct Packet *packet_t) {
 
             printf("Protocol: UDP\n"); 
             
-            if (packet_t->p_len < SIZE_ETHERNET + ip_size + sizeof(struct udphdr)) {
-                printf("Packet too small for UDP header\n");
+            if (pk->p_len < SIZE_ETHERNET + ip_size + sizeof(struct udphdr)) 
+            {
+                printf("packet_t too small for UDP header\n");
                 return;
             }
             
@@ -296,7 +314,9 @@ void process_packet(struct Packet *packet_t) {
             
             payload = packet + SIZE_ETHERNET + ip_size + transport_size;
             int udp_len = ntohs(udp->uh_ulen);
-            if(udp_len < transport_size || SIZE_ETHERNET + ip_size + udp_len > packet_t->p_len){
+
+            if(udp_len < transport_size || SIZE_ETHERNET + ip_size + udp_len > pk->p_len)
+            {
                 printf("invalid udp length field\n");
                 return;
             }
@@ -312,8 +332,9 @@ void process_packet(struct Packet *packet_t) {
 
             printf("Protocol: ICMP\n"); 
             
-            if (packet_t->p_len < SIZE_ETHERNET + ip_size + sizeof(struct icmphdr)) {
-                printf("Packet too small for ICMP header\n");
+            if (pk->p_len < SIZE_ETHERNET + ip_size + sizeof(struct icmphdr))
+            {
+                printf("packet_t too small for ICMP header\n");
                 return;
             }
 
@@ -334,23 +355,27 @@ void process_packet(struct Packet *packet_t) {
     }
 
 
-    if (payload_size > 0 && payload_size <= packet_t->p_len) {
+    if (payload_size > 0 && payload_size <= pk->p_len)
+    {
         printf("Payload %d bytes------------------------------:\n\n", payload_size);
         print_payload(payload, payload_size);
     }
 }
 
-void *capture_packets(void *args){
-    
+void *capture_packets(void *args)
+{    
     char *device; 
     pcap_if_t *alldevices;
     char errbuff[PCAP_ERRBUF_SIZE];
 
-    if(pcap_findalldevs(&alldevices, errbuff) == -1){
+    if(pcap_findalldevs(&alldevices, errbuff) == -1)
+    {
         fprintf(stderr, "Couldn find devices %s\n", errbuff); 
         exit(EXIT_FAILURE);
     }
-    if(alldevices == NULL){
+
+    if(alldevices == NULL)
+    {
         fprintf(stderr, "No devices found\n");
         pcap_freealldevs(alldevices);
         exit(EXIT_FAILURE);
@@ -364,7 +389,8 @@ void *capture_packets(void *args){
     bpf_u_int32 mask;   
     bpf_u_int32 net;
         
-    if(pcap_lookupnet(device, &net, &mask, errbuff) == -1){
+    if(pcap_lookupnet(device, &net, &mask, errbuff) == -1)
+    {
         fprintf(stderr, "can't get netmask for device %s: %s\n", device, errbuff);
         net = 0;
         mask = 0; 
@@ -372,26 +398,25 @@ void *capture_packets(void *args){
 
     handle = pcap_open_live(device, BUFSIZ, 1, 1000, errbuff);
 
-    if(handle == NULL){
-
+    if(handle == NULL)
+    {
         fprintf(stderr, "couldn't open device %s: %s\n", device, errbuff);
         pcap_freealldevs(alldevices);
         exit(EXIT_FAILURE);
-    
     }
 
     int dlt = pcap_datalink(handle);
 
-    if(dlt != DLT_EN10MB){
-
+    if(dlt != DLT_EN10MB)
+    {
         fprintf(stderr, "Device %s doesn't provide ethenet header\n", device);
         pcap_close(handle);
         pcap_freealldevs(alldevices);
         exit(EXIT_FAILURE); 
     }
 
-    if(pcap_compile(handle, &fp, filter_exp, 0, net) == -1){
-
+    if(pcap_compile(handle, &fp, filter_exp, 0, net) == -1)
+    {
         fprintf(stderr, "Couldn't parse filter %s : %s\n", filter_exp, pcap_geterr(handle));
         pcap_freecode(&fp);
         pcap_close(handle);
@@ -400,7 +425,8 @@ void *capture_packets(void *args){
     }
  //   print_compiled_filter(fp); 
 
-    if(pcap_setfilter(handle, &fp) == -1){
+    if(pcap_setfilter(handle, &fp) == -1)
+    {
 
         fprintf(stderr, "Couldn't installl filter %s: %s\n", filter_exp, pcap_geterr(handle));
         pcap_freecode(&fp);
@@ -414,7 +440,8 @@ void *capture_packets(void *args){
     
     int result = pcap_loop(handle, RING_BUFFER_SIZE, packet_handler, NULL);
 
-    if(result == -1){
+    if(result == -1)
+    {
         fprintf(stderr, "Error in loop %s\n", pcap_geterr(handle));
     }
 
@@ -428,7 +455,8 @@ void *capture_packets(void *args){
     return NULL;
 }
 
-void * dequeue_ring_buffer(void *args){
+void * dequeue_ring_buffer(void *args)
+{
 
     struct tm local_time_buf; 
     char buffer[100];
@@ -437,15 +465,18 @@ void * dequeue_ring_buffer(void *args){
 
         pthread_mutex_lock(&ring_buffer.mutex); 
 
-        while(is_empty() && !ring_buffer.done){
+        while(is_empty() && !ring_buffer.done)
+        {
             pthread_cond_wait(&ring_buffer.cond_consumer, &ring_buffer.mutex);
         }
-        if(ring_buffer.count == 0 && ring_buffer.done){
+
+        if(ring_buffer.count == 0 && ring_buffer.done)
+        {
             pthread_mutex_unlock(&ring_buffer.mutex);
             break;
         }
 
-        struct Packet *packet_t = &ring_buffer.packet_buffer[ring_buffer.tail]; 
+        struct packet_t *pk = &ring_buffer.packet_buffer[ring_buffer.tail]; 
         ring_buffer.tail = (ring_buffer.tail + 1) % RING_BUFFER_SIZE;
         --ring_buffer.count;
 
@@ -453,13 +484,13 @@ void * dequeue_ring_buffer(void *args){
 
         printf("\n");
         sleep(1);
-        printf("PACKET SIZE : %u bytes\n", packet_t->p_len);
-        process_packet(packet_t);
+        printf("PACKET SIZE : %u bytes\n", pk->p_len);
+        process_packet(pk);
 
-        struct timeval now = packet_t->p_time_capture;
+        struct timeval now = pk->p_time_capture;
         localtime_r(&now.tv_sec, &local_time_buf);
         strftime(buffer, sizeof(buffer), "%H:%M:%S", &local_time_buf);
-        printf("\nPacket Time Stamp: %s.%06ld\n", buffer, now.tv_usec);
+        printf("\npacket_t Time Stamp: %s.%06ld\n", buffer, now.tv_usec);
         
     }
     return NULL; 
@@ -473,22 +504,26 @@ int main(int argc, char *argv[])
     pthread_cond_init(&ring_buffer.cond_consumer, NULL);
 
     pthread_t producer_thread;
-    if(pthread_create(&producer_thread, NULL, capture_packets, NULL)!= 0 ){
+    if(pthread_create(&producer_thread, NULL, capture_packets, NULL)!= 0 )
+    {
         fprintf(stderr, "Error creating capture thread\n");
         exit(EXIT_FAILURE);
     }
 
     pthread_t consumer_thread;
-    if(pthread_create(&consumer_thread, NULL, dequeue_ring_buffer, NULL)!= 0){
+    if(pthread_create(&consumer_thread, NULL, dequeue_ring_buffer, NULL)!= 0)
+    {
         fprintf(stderr, "Error creating consumer thread\n");
         exit(EXIT_FAILURE);
     }
 
-    if(pthread_join(producer_thread, NULL) != 0){
+    if(pthread_join(producer_thread, NULL) != 0)
+    {
         fprintf(stderr, "Erro joining producer thread\n");
         exit(EXIT_FAILURE);
     }
-    if(pthread_join(consumer_thread, NULL) != 0){
+    if(pthread_join(consumer_thread, NULL) != 0)
+    {
         fprintf(stderr, "Error joining consumer thread\n");
         exit(EXIT_FAILURE);
     }
