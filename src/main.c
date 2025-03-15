@@ -25,6 +25,9 @@
 #define RING_BUFFER_SIZE 10
 #define CACHE_LINE_SIZE 64
 
+#define PACKET_PADDING (CACHE_LINE_SIZE - ((NETWORK_MTU + sizeof(struct pcap_pkthdr)\
+    + sizeof(int) + sizeof(struct timeval)) % CACHE_LINE_SIZE))
+
 #define PRINT_IP(x)\
     printf("%u.%u.%u.%u\n", \
            ((x) >> 24) & 0xFF, \
@@ -44,11 +47,14 @@
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
 struct packet_t{
+
     u_char p_packet[NETWORK_MTU];
     struct pcap_pkthdr p_header; 
     int p_len;
-    struct timeval p_time_capture; 
-};
+    struct timeval p_time_capture;
+    char padding[PACKET_PADDING];
+
+}__attribute__((aligned(CACHE_LINE_SIZE)));
 
 struct ring_buffer_t{
 
