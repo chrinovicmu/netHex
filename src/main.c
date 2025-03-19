@@ -502,8 +502,8 @@ void * dequeue_ring_buffer(void *args)
     struct tm local_time_buf; 
     char buffer[100];
 
-    while(1){
-
+    while(1)
+    {
         pthread_mutex_lock(&ring_buffer.mutex); 
 
         while(is_rb_empty() && !ring_buffer.done)
@@ -542,7 +542,8 @@ void * dequeue_ring_buffer(void *args)
 
 int main(int argc, char *argv[])
 {
-    if(argc != 2){
+    if(argc != 2)
+    {
         printf("Error: incude protocol for filtering , e.g 'udp', 'tcp\n");
         printf("Usage: make -PF <filter>\n");
         exit(EXIT_FAILURE);
