@@ -10,10 +10,10 @@ This is a lightweight, high-performance network packet capture and analysis tool
 
 ## Features
 
-- Live network interface packet capture
+- Live network interface concurrent packet capture
 - Support for multiple network protocols (TCP, UDP, ICMP)
 - Configurable packet filtering
-- Concurrent capturing and processing 
+- packet information such as destination, source ip address and timestamp  
 - Hex representation of packet payload 
 
 ## Prerequisites

@@ -31,9 +31,7 @@
 /*architecure specific max cache line size for padding */  
 #define CACHE_LINE_SIZE 64
 
-/*filter protocol type */
-#define PK_FILTER "udp"
-
+/*padding for packet structure*/
 #define PACKET_PADDING (CACHE_LINE_SIZE - ((NETWORK_MTU + sizeof(struct pcap_pkthdr)\
     + sizeof(int) + sizeof(struct timeval)) % CACHE_LINE_SIZE))
 
