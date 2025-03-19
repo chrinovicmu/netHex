@@ -20,7 +20,7 @@ This is a lightweight, high-performance network packet capture and analysis tool
 
 - libpcap development libraries
 - GCC compiler with C11 support
-- Linux/UNIX-based operating system
+- Linux/POSIX complaint Unix based Operating System
 - GNU Make version 4.3  
 
 ## Dependencies
