@@ -101,7 +101,7 @@ void packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char
     pthread_mutex_lock(&ring_buffer.mutex);
 
 
-    if(is_full())
+    if(is_rb_full())
     {
         ring_buffer.tail = (ring_buffer.tail+1) % RING_BUFFER_SIZE; 
 
@@ -506,7 +506,7 @@ void * dequeue_ring_buffer(void *args)
 
         pthread_mutex_lock(&ring_buffer.mutex); 
 
-        while(is_empty() && !ring_buffer.done)
+        while(is_rb_empty() && !ring_buffer.done)
         {
             pthread_cond_wait(&ring_buffer.cond_consumer, &ring_buffer.mutex);
         }
