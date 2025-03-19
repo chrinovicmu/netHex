@@ -83,10 +83,10 @@ struct ring_buffer_t{
 
 static struct ring_buffer_t ring_buffer; 
 
-int is_full(){
+int is_rb_full(){
     return ring_buffer.count == RING_BUFFER_SIZE; 
 }
-int is_empty(){
+int is_rb_empty(){
     return ring_buffer.count == 0; 
 }
 
