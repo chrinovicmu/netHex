@@ -30,17 +30,13 @@ This is a lightweight, high-performance network packet capture and analysis tool
 
 ## Installation 
 
--Clone the repository : 
-```
-```
+Clone the repository : 
+``
 git clone https://github.com/ChrinovicMu/Pack-Sniff.git 
-```
-```
--Navigate to Directory
+``
+Navigate to Directory
 ```
 cd Pack-Sniff
-```
-```
 ```
 
 
