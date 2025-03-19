@@ -51,7 +51,7 @@ make build
 Will require root privileges 
 
 ```bash
-make run 
+make run PF=<"protocol"> 
 ```
 ## Contributing
 

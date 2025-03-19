@@ -21,13 +21,24 @@
 #include <stdalign.h>
 
 #define SIZE_ETHERNET 14
+
+/*maximum netork transmisson unit */
 #define NETWORK_MTU 1518 
+
+/*maximum buffer size and packets to capture*/ 
 #define RING_BUFFER_SIZE 10
+
+/*architecure specific max cache line size for padding */  
 #define CACHE_LINE_SIZE 64
+
+/*filter protocol type */
+#define PK_FILTER "udp"
 
 #define PACKET_PADDING (CACHE_LINE_SIZE - ((NETWORK_MTU + sizeof(struct pcap_pkthdr)\
     + sizeof(int) + sizeof(struct timeval)) % CACHE_LINE_SIZE))
 
+
+/*ignore */ 
 #define PRINT_IP(x)\
     printf("%u.%u.%u.%u\n", \
            ((x) >> 24) & 0xFF, \
@@ -80,6 +91,12 @@ int is_full(){
 int is_empty(){
     return ring_buffer.count == 0; 
 }
+
+
+/*this is the callback function for the packet capturing 
+ *caputures individual packet and temporary store in ring buffer before processing 
+ * */
+
 void packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)
 {
 
@@ -117,6 +134,9 @@ void packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char
     pthread_mutex_unlock(&ring_buffer.mutex);
 }
 
+
+/*ignore : test function for debugging*/ 
+
 void print_compiled_filter(struct bpf_program bf)
 {
 
@@ -130,6 +150,9 @@ void print_compiled_filter(struct bpf_program bf)
     }
     printf("\n");
 }
+
+
+/* converts the hex packet payload representation to ascii, for human readability */
 
 void print_hex_ascii_line(const u_char *payload, int len, int offset)
 {
@@ -176,6 +199,9 @@ void print_hex_ascii_line(const u_char *payload, int len, int offset)
 
 }
 
+
+/*main function to print payload info which calls print_hex_ascii */ 
+
 void print_payload(const u_char *payload, int len)
 {
 
@@ -218,6 +244,7 @@ void print_payload(const u_char *payload, int len)
     }
     return;
 }
+
 
 void process_packet(struct packet_t *pk)
 {
@@ -364,13 +391,17 @@ void process_packet(struct packet_t *pk)
 
     if (payload_size > 0 && payload_size <= pk->p_len)
     {
-        printf("Payload %d bytes------------------------------:\n\n", payload_size);
+        printf("Payload size %d bytes\n", payload_size);
         print_payload(payload, payload_size);
     }
 }
 
-void *capture_packets(void *args)
-{    
+
+/** Ring Buffer Producer Thread Function which captures incomming packets */
+
+void *capture_packets(void *arg)
+{
+    char *filter_exp = (char*)arg;
     char *device; 
     pcap_if_t *alldevices;
     char errbuff[PCAP_ERRBUF_SIZE];
@@ -391,8 +422,7 @@ void *capture_packets(void *args)
 
 
     pcap_t *handle;
-    struct bpf_program fp; 
-    char filter_exp[] = "udp";
+    struct bpf_program fp;
     bpf_u_int32 mask;   
     bpf_u_int32 net;
         
@@ -430,7 +460,10 @@ void *capture_packets(void *args)
         pcap_freealldevs(alldevices);
         exit(EXIT_FAILURE);
     }
- //   print_compiled_filter(fp); 
+
+    /*
+    print_compiled_filter(fp); 
+    */ 
 
     if(pcap_setfilter(handle, &fp) == -1)
     {
@@ -461,6 +494,9 @@ void *capture_packets(void *args)
 
     return NULL;
 }
+
+
+/* Ring Buffer Consumer Thread Function which processes individual packets in the buffer */
 
 void * dequeue_ring_buffer(void *args)
 {
@@ -498,6 +534,8 @@ void * dequeue_ring_buffer(void *args)
         localtime_r(&now.tv_sec, &local_time_buf);
         strftime(buffer, sizeof(buffer), "%H:%M:%S", &local_time_buf);
         printf("\npacket_t Time Stamp: %s.%06ld\n", buffer, now.tv_usec);
+
+        printf("\n-------------------------------------------------------------------\n");
         
     }
     return NULL; 
@@ -506,12 +544,17 @@ void * dequeue_ring_buffer(void *args)
 
 int main(int argc, char *argv[])
 {
+    if(argc != 2){
+        printf("Error: incude protocol for filtering , e.g 'udp', 'tcp\n");
+        printf("Usage: make -PF <filter>\n");
+        exit(EXIT_FAILURE);
+    }
     pthread_mutex_init(&ring_buffer.mutex, NULL);
     pthread_cond_init(&ring_buffer.cond_producer, NULL);
     pthread_cond_init(&ring_buffer.cond_consumer, NULL);
 
     pthread_t producer_thread;
-    if(pthread_create(&producer_thread, NULL, capture_packets, NULL)!= 0 )
+    if(pthread_create(&producer_thread, NULL, capture_packets, (void *)argv[1])!= 0 )
     {
         fprintf(stderr, "Error creating capture thread\n");
         exit(EXIT_FAILURE);

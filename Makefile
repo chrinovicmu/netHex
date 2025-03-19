@@ -7,13 +7,15 @@ TARGET := ./main
 
 SRCS := $(wildcard $(SRC_DIR)/*.c)
 
+PF := 
+
 .PHONY: build run clean
 
 build:
 	$(CC) $(CFLAGS) $(SRCS) -o $(TARGET) $(LDFLAGS)
 
 run: build
-	sudo $(TARGET)
+	sudo $(TARGET) $(PF)
 
 clean:
 	rm -f $(TARGET)
