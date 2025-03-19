@@ -2,7 +2,7 @@
 
 ## Overview
 
-This is a lightweight, high-performance network packet capture and analysis tool written in C, designed to intercept and examine network traffic using libpcap. The project focuses on providing detailed packet inspection capabilities with an efficient ring buffer implementation for handling network packets.
+This is a lightweight, high-performance network packet capture and analysis tool written in C, designed to intercept, examine network traffic, and support real time packet filtering for sniffing purposes and many more to come...
 
 ## Project Status: Work in Progress
 
@@ -14,7 +14,7 @@ This is a lightweight, high-performance network packet capture and analysis tool
 - Support for multiple network protocols (TCP, UDP, ICMP)
 - Configurable packet filtering
 - Concurrent capturing and processing 
-- Hex and ASCII payload representation
+- Hex representation of packet payload 
 
 ## Prerequisites
 
@@ -27,6 +27,22 @@ This is a lightweight, high-performance network packet capture and analysis tool
 
 - libpcap
 - Standard C libraries
+
+## Installation 
+
+-Clone the repository : 
+```
+```
+git clone https://github.com/ChrinovicMu/Pack-Sniff.git 
+```
+```
+-Navigate to Directory
+```
+cd Pack-Sniff
+```
+```
+```
+
 
 ## Compilation
 
