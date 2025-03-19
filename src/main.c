@@ -26,7 +26,7 @@
 #define NETWORK_MTU 1518 
 
 /*maximum buffer size and packets to capture*/ 
-#define RING_BUFFER_SIZE 10
+#define RING_BUFFER_SIZE 1000
 
 /*architecure specific max cache line size for padding */  
 #define CACHE_LINE_SIZE 64
@@ -524,7 +524,7 @@ void * dequeue_ring_buffer(void *args)
         pthread_mutex_unlock(&ring_buffer.mutex);
 
         printf("\n");
-        sleep(1);
+       // sleep(1);
         printf("PACKET SIZE : %u bytes\n", pk->p_len);
         process_packet(pk);
 
