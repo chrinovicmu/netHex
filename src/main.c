@@ -26,7 +26,7 @@
 #define NETWORK_MTU 1518 
 
 /*maximum buffer size and packets to capture*/ 
-#define RING_BUFFER_SIZE 1000
+#define RING_BUFFER_SIZE 100
 
 /*architecure specific max cache line size for padding */  
 #define CACHE_LINE_SIZE 64
