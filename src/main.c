@@ -16,7 +16,6 @@
 #include <sys/types.h>
 #include <stdatomic.h>
 #include <pthread.h>
-#include <threads.h>
 #include <unistd.h>
 #include <stdalign.h>
 
