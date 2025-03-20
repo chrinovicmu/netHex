@@ -42,7 +42,7 @@
            ((x) >> 24) & 0xFF, \
            ((x) >> 16)  & 0xFF, \
            ((x) >> 8) & 0xFF, \
-           (x) & 0xF)
+           (x) & 0xFF)
 
 #define PRINT_GENERIC(x) \
     _Generic((x), \
@@ -83,10 +83,10 @@ struct ring_buffer_t{
 
 static struct ring_buffer_t ring_buffer; 
 
-int is_rb_full(){
+int is_rb_full(void){
     return ring_buffer.count == RING_BUFFER_SIZE; 
 }
-int is_rb_empty(){
+int is_rb_empty(void){
     return ring_buffer.count == 0; 
 }
 
