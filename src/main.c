@@ -68,9 +68,9 @@ struct ring_buffer_t{
 
     struct packet_t packet_buffer[RING_BUFFER_SIZE];
 
-    alignas(CACHE_LINE_SIZE) _Atomic uint32_t head;
-    alignas(CACHE_LINE_SIZE) _Atomic uint32_t tail; 
-    alignas(CACHE_LINE_SIZE) _Atomic uint32_t count; 
+    alignas(CACHE_LINE_SIZE) uint32_t head;
+    alignas(CACHE_LINE_SIZE) uint32_t tail; 
+    alignas(CACHE_LINE_SIZE) uint32_t count; 
     alignas(CACHE_LINE_SIZE) _Atomic uint8_t done;
 
     pthread_mutex_t mutex;
@@ -266,12 +266,12 @@ void process_packet(struct packet_t *pk)
         return;
     }
 
-    const struct ether_header *ethernet; 
-    const struct ip *ip;             
-    const struct tcphdr *tcp;
-    const struct udphdr *udp;
-    const struct icmphdr *icmp;
-    const char *payload = NULL;
+    struct ether_header *ethernet; 
+    struct ip *ip;             
+    struct tcphdr *tcp;
+    struct udphdr *udp;
+    struct icmphdr *icmp;
+    u_char *payload = NULL;
     
     int ip_size = 0; 
     int transport_size = 0;
@@ -296,6 +296,7 @@ void process_packet(struct packet_t *pk)
     }
 
     ip = (struct ip *)(packet + SIZE_ETHERNET);
+   // memcpy(ip, packet + SIZE_ETHERNET, sizeof(*ip));
     ip_size = ip->ip_hl * 4; 
 
 
@@ -323,6 +324,7 @@ void process_packet(struct packet_t *pk)
             }
 
             tcp = (struct tcphdr *)(packet + SIZE_ETHERNET + ip_size);
+           // memcpy(tcp, packet + SIZE_ETHERNET + ip_size, sizeof(*tcp));
             transport_size = tcp->th_off * 4; 
             
             if (transport_size < 20 || transport_size > 60)
@@ -346,6 +348,7 @@ void process_packet(struct packet_t *pk)
             }
             
             udp = (struct udphdr *)(packet + SIZE_ETHERNET + ip_size); 
+            //memcpy(udp, packet + SIZE_ETHERNET + ip_size, sizeof(udp));
             transport_size = sizeof(struct udphdr);
             
             printf("Source port: %u\n", ntohs(udp->uh_sport));
@@ -380,6 +383,7 @@ void process_packet(struct packet_t *pk)
             }
 
             icmp = (struct icmphdr *)(packet + SIZE_ETHERNET + ip_size);
+            //memcpy(icmp, packet + SIZE_ETHERNET +ip_size, sizeof(*udp));
             transport_size = sizeof(struct icmphdr);
             
             printf("ICMP type: %u\n", icmp->type);
@@ -491,9 +495,11 @@ void *capture_packets(void *arg)
     {
         fprintf(stderr, "Error in loop %s\n", pcap_geterr(handle));
     }
+    pthread_mutex_lock(&ring_buffer.mutex);
 
     ring_buffer.done = 1;
     pthread_cond_signal(&ring_buffer.cond_consumer);
+    pthread_mutex_unlock(&ring_buffer.mutex);
 
     pcap_freealldevs(alldevices);
     pcap_freecode(&fp);
