@@ -151,52 +151,62 @@ void print_compiled_filter(struct bpf_program bf)
 
 /* converts the hex packet payload representation to ascii, for human readability */
 
-void print_hex_ascii_line(const u_char *payload, int len, int offset)
+void print_hex_ascii_line(const u_char *payload, int len, int offset) 
 {
+    char buffer[80]; // Fixed size for one 16-byte line
+    const u_char *ch = payload;
+    int bytes_remaining = len;
+    int current_offset = offset;
 
-    int gap;
-    const u_char *ch;
+    if (len < 0) return; 
 
-    printf("%08X", offset);
+    /* Process payload in 16-byte chunks */ 
 
-    ch = payload;
+    while (bytes_remaining > 0) 
+    {
+        int chunk_len = (bytes_remaining > 16) ? 16 : bytes_remaining;
+        int pos = 0;
 
-    for(int x = 0;x< len; x++){
-        printf("%02X", *ch);
-        ch++; 
+        /* Write offset */ 
 
-        if(x == 7){
-            printf(" ");
+        pos += snprintf(buffer + pos, sizeof(buffer) - pos, "%08X ", current_offset);
+
+        /* Hexadecimal section */ 
+
+        for (int x = 0; x < 16; x++) {
+            if (x < chunk_len) {
+                pos += snprintf(buffer + pos, sizeof(buffer) - pos, "%02X ", ch[x]);
+            } else {
+                pos += snprintf(buffer + pos, sizeof(buffer) - pos, "   ");
+            }
+            if (x == 7 && pos < sizeof(buffer)) {
+                buffer[pos++] = ' '; 
+            }
         }
+        
+        pos += snprintf(buffer + pos, sizeof(buffer) - pos, "| ");
+
+        /* ASCII section */
+
+        for (int x = 0; x < chunk_len; x++) 
+        {
+            if (pos < sizeof(buffer) - 1)
+            {
+                buffer[pos++] = isprint(ch[x]) ? ch[x] : '.';
+            }
+        }
+
+        if (pos < sizeof(buffer) - 1) buffer[pos++] = '\n';
+        if (pos < sizeof(buffer)) buffer[pos] = '\0';
+
+
+        printf("%s", buffer);
+
+        ch += chunk_len;
+        bytes_remaining -= chunk_len;
+        current_offset += chunk_len;
     }
-
-    if(len < 16){
-        gap = (16 - len) *3;
-        if(len <= 8){
-            gap++;
-        }
-        while(gap--){
-            printf(" ");
-        }
-    }
-
-    printf("| ");
-
-    ch = payload;
-
-    for(int x = 0; x < len; ++x){
-        if(isprint(*ch)){
-            printf("%c", *ch);
-        }else{
-            printf(".");
-        }
-        ch++;
-    }
-    printf("\n");
-
 }
-
-
 /*main function to print payload info which calls print_hex_ascii */ 
 
 void print_payload(const u_char *payload, int len)
