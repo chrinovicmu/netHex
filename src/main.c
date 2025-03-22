@@ -1,3 +1,28 @@
+
+/*
+MIT License
+
+Copyright (c) 2025 Chrinovic M 
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/ 
+
 #include <netinet/in.h>
 #include <pcap/pcap.h>
 #include <stdint.h>
@@ -7,17 +32,22 @@
 #include <string.h>
 #include <stdint.h>
 #include <ctype.h>
+#include <net/ethernet.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
 #include <netinet/udp.h>
 #include <netinet/ip_icmp.h>
+#include <netinet/ip6.h>
+#include <netinet/icmp6.h>
 #include <arpa/inet.h>
 #include <stddef.h>
+#include <sys/socket.h>
 #include <sys/types.h>
 #include <stdatomic.h>
 #include <pthread.h>
 #include <unistd.h>
 #include <stdalign.h>
+#include <stdbool.h>
 
 #define SIZE_ETHERNET 14
 
@@ -257,6 +287,137 @@ void print_payload(const u_char *payload, int len)
     return;
 }
 
+void process_ipv6_transport(const u_char *packet, int packet_len,
+                            int offset, uint8_t next_header)
+{
+    struct tcphdr tcp_header;
+    struct udphdr udp_header;
+    struct icmp6_hdr icmp6_header;
+    u_char *payload = NULL;
+    int transport_size = 0;
+    int payload_size = 0;
+
+    switch(next_header)
+    {
+        case IPPROTO_TCP:
+            
+            printf("Protocol: TCP\n");
+
+            if(packet_len < offset + sizeof(struct tcphdr))
+            {
+                printf("Packet is too samll for TCP header");
+                return;
+            }
+            
+            memcpy(&tcp_header, packet + offset, sizeof(tcp_header));
+            
+            transport_size = tcp_header.th_off * 4;
+            
+            if(transport_size < 20 || transport_size > 60)
+            {
+                printf("Invalid TCP header length: %u bytes", transport_size);
+                return;
+            }
+            printf("Source port: %u\nDestination Port : %u\n",
+                   ntohs(tcp_header.th_sport), ntohs(tcp_header.th_dport));
+            
+            payload = (u_char*)(packet + offset + transport_size);
+            payload_size = packet_len - (offset + transport_size);
+            break;
+            
+
+
+        case IPPROTO_UDP:
+            
+            printf("Protocol : UDP\n");
+
+            if(packet_len < offset + sizeof(struct udphdr))
+            {
+                printf("Packet too small for UDP header\n");
+                return;
+            }
+            memcpy(&udp_header, packet + offset, sizeof(udp_header));
+
+            transport_size = sizeof(struct udphdr);
+            
+            printf("Source port: %u\nDestination port: %u\nUDP length: %u\nUDP Checksum : %0x40x\n", 
+                   ntohs(udp_header.uh_sport), ntohs(udp_header.uh_dport), udp_header.uh_ulen, udp_header.uh_sum);
+            
+
+            payload = (u_char*)(packet + offset + transport_size);
+            payload_size = ntohs(udp_header.uh_ulen) - transport_size;
+            
+            if (payload < 0)
+            {
+                printf("Invalid UDP payload size\n"); 
+                payload_size = 0; 
+            }
+            break;
+
+
+
+        case IPPROTO_ICMPV6:
+            
+            printf("Protocol: ICMPv6\n");
+            
+            if(packet_len < offset + sizeof(struct icmp6_hdr))
+            {
+                printf("Packet too small for ICMPv6 header\n");
+                return; 
+            }
+
+            memcpy(&icmp6_header, packet + offset, sizeof(icmp6_header));
+
+            transport_size = sizeof(struct icmp6_hdr);
+
+            printf("ICMPv6 Type: %u\nICMPv6 Code: %u\n",icmp6_header.icmp6_type, icmp6_header.icmp6_code);
+
+            payload = (u_char*)(packet + offset + transport_size);
+            payload_size = packet_len + (offset + transport_size);
+            break; 
+
+
+        default:
+            printf("Protocol : Unknown (Next Header : %u\n", next_header);
+            return; 
+    }
+
+    if(payload_size > 0 && payload_size <= packet_len - offset - transport_size)
+    {
+        printf("Payload size %d bytes\n", payload_size);
+        print_payload(payload, payload_size);
+    }
+
+}
+
+
+
+/*process_ipv6_header processes IPv6 extension headers 
+ * Unlike IPv4 , where options are part of main header, IPv6 uses a chain of extension headers for additonal 
+ * functionality 
+ * */
+
+void process_upv6_header(const u_char *packet, int packet_len, int *offset, uint8_t *next_header)
+{
+    struct ip6_hdr *ip6_header = (struct ip6_hdr *)(packet + SIZE_ETHERNET);
+
+    *next_header = ip6_header->ip6_nxt;
+    *offset = SIZE_ETHERNET + sizeof(struct ip6_hdr);
+
+    bool done = false;
+
+    /*process each entension in sequence until we reach non-extension headers */
+
+    while(!done && *offset < packet_len)
+    {
+
+
+
+    }
+
+
+
+}
 
 void process_packet(struct packet_t *pk)
 {
@@ -299,6 +460,40 @@ void process_packet(struct packet_t *pk)
         printf("packet_t too small for IP header\n");
         return;
     }
+
+    uint16_t ether_type = ntohs(ethernet->ether_type);
+
+    if(ether_type == ETHERTYPE_IP)
+    {
+        memcpy(ip, packet + SIZE_ETHERNET, sizeof(*ip));
+
+    }
+    else if (ether_type == ETHERTYPE_IPV6)
+    {
+        struct ip6_hdr ip6_header; 
+
+        if(pk->p_len < SIZE_ETHERNET + sizeof(struct ip6_hdr))
+        {
+            printf("Packet too small for IPv6 header\n");
+            return;
+        }
+        memcpy(&ip6_header, packet + SIZE_ETHERNET, sizeof(ip6_header));
+
+        char src_addr[INET6_ADDRSTRLEN];
+        char dst_addr[INET6_ADDRSTRLEN];
+
+        inet_ntop(AF_INET6, &ip6_header.ip6_src, src_addr, INET6_ADDRSTRLEN);
+        inet_ntop(AF_INET6, &ip6_header.ip6_dst, dst_addr, INET6_ADDRSTRLEN);
+
+        printf("from : %s\nTo : %s\n", src_addr, dst_addr);
+
+        uint8_t next_header = ip6_header.ip6_nxt; 
+
+        process_ipv6_transport(packet, pk->p_len, SIZE_ETHERNET + sizeof(ip6_header), next_header);
+
+        
+    }
+    
 
     //ip = (struct ip *)(packet + SIZE_ETHERNET);
     memcpy(ip, packet + SIZE_ETHERNET, sizeof(*ip));
@@ -352,7 +547,7 @@ void process_packet(struct packet_t *pk)
                 return;
             }
             
-            //udp = (struct udphdr *)(packet + SIZE_ETHERNET + ip_size); 
+    
             memcpy(udp, packet + SIZE_ETHERNET + ip_size, sizeof(udp));
             transport_size = sizeof(struct udphdr);
             
