@@ -1,7 +1,6 @@
 
 CC := clang
-CFLAGS := 
-#-O2 -fsanitize=thread,undefined,alignment
+CFLAGS := -O2 -fsanitize=thread,undefined,alignment
 #-Wall -Wpedantic -Wextra -Wno-unused-parameter -Wno-unused-funtion -fsanitize=undefined -fsanitize=thread 
 LDFLAGS := -lpcap -pthread
 SRC_DIR := src
@@ -22,13 +21,13 @@ run: build
 clean:
 	rm -f $(TARGET)
 
-test: build
-	valgrind --leak-check=full --track-origins=yes --show-leak-kinds=all --verbose ./main
-
 perf: build 
 	@echo "RUNNING perf on : $(TARGET)"
 	sudo perf stat -e cache-misses,cache-references $(TARGET) > /dev/null 2>&1
-	
+
+helgrind: build
+	@echo "RUNNING Helgrind to check for race conditions on : $(TARGET)"
+	sudo valgrind --tool=helgrind $(TARGET) $(PF)
 .PHONY: git-push 
 git-push:
 	@git add .

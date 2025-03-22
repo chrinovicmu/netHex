@@ -24,7 +24,7 @@
 /*maximum netork transmisson unit */
 #define NETWORK_MTU 1518 
 
-/*maximum buffer size and packets to capture*/ 
+/*maxximum buffer size and packets to capture*/ 
 #define RING_BUFFER_SIZE 100
 
 /*architecure specific max cache line size for padding */  
@@ -52,7 +52,6 @@
              char: printf("%c\n", (x)), \
              char*: printf("%s\n", (x)))
 
-pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
 struct packet_t{
 
@@ -64,28 +63,33 @@ struct packet_t{
 
 }__attribute__((aligned(CACHE_LINE_SIZE)));
 
+
 struct ring_buffer_t{
 
     struct packet_t packet_buffer[RING_BUFFER_SIZE];
 
-    alignas(CACHE_LINE_SIZE) uint32_t head;
-    alignas(CACHE_LINE_SIZE) uint32_t tail; 
-    alignas(CACHE_LINE_SIZE) uint32_t count; 
-    alignas(CACHE_LINE_SIZE) _Atomic uint8_t done;
+    uint32_t head;
+    uint32_t tail; 
+    uint32_t count; 
+    _Atomic uint8_t done;
 
     pthread_mutex_t mutex;
     pthread_cond_t cond_producer;
     pthread_cond_t cond_consumer; 
+
     char padding[CACHE_LINE_SIZE - (sizeof(int)*2 + sizeof(unsigned int))]; 
 
 }__attribute__((aligned(CACHE_LINE_SIZE)));
 
+
 static struct ring_buffer_t ring_buffer; 
 
-int is_rb_full(void){
+int is_rb_full(void)
+{
     return ring_buffer.count == RING_BUFFER_SIZE; 
 }
-int is_rb_empty(void){
+int is_rb_empty(void)
+{
     return ring_buffer.count == 0; 
 }
 
@@ -112,7 +116,8 @@ void packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char
     struct packet_t *pk;
     pk = &ring_buffer.packet_buffer[ring_buffer.head];
 
-    if(header->len > NETWORK_MTU){
+    if(header->len > NETWORK_MTU)
+    {
         fprintf(stderr, "packet too large! discarded\n");
         pthread_mutex_unlock(&ring_buffer.mutex);
         return;
@@ -267,10 +272,10 @@ void process_packet(struct packet_t *pk)
     }
 
     struct ether_header *ethernet; 
-    struct ip *ip;             
-    struct tcphdr *tcp;
-    struct udphdr *udp;
-    struct icmphdr *icmp;
+    struct ip ip[1];             
+    struct tcphdr tcp[1];
+    struct udphdr udp[1];
+    struct icmphdr icmp[1];
     u_char *payload = NULL;
     
     int ip_size = 0; 
@@ -295,8 +300,8 @@ void process_packet(struct packet_t *pk)
         return;
     }
 
-    ip = (struct ip *)(packet + SIZE_ETHERNET);
-   // memcpy(ip, packet + SIZE_ETHERNET, sizeof(*ip));
+    //ip = (struct ip *)(packet + SIZE_ETHERNET);
+    memcpy(ip, packet + SIZE_ETHERNET, sizeof(*ip));
     ip_size = ip->ip_hl * 4; 
 
 
@@ -323,8 +328,8 @@ void process_packet(struct packet_t *pk)
                 return;
             }
 
-            tcp = (struct tcphdr *)(packet + SIZE_ETHERNET + ip_size);
-           // memcpy(tcp, packet + SIZE_ETHERNET + ip_size, sizeof(*tcp));
+            //tcp = (struct tcphdr *)(packet + SIZE_ETHERNET + ip_size);
+            memcpy(tcp, packet + SIZE_ETHERNET + ip_size, sizeof(*tcp));
             transport_size = tcp->th_off * 4; 
             
             if (transport_size < 20 || transport_size > 60)
@@ -347,8 +352,8 @@ void process_packet(struct packet_t *pk)
                 return;
             }
             
-            udp = (struct udphdr *)(packet + SIZE_ETHERNET + ip_size); 
-            //memcpy(udp, packet + SIZE_ETHERNET + ip_size, sizeof(udp));
+            //udp = (struct udphdr *)(packet + SIZE_ETHERNET + ip_size); 
+            memcpy(udp, packet + SIZE_ETHERNET + ip_size, sizeof(udp));
             transport_size = sizeof(struct udphdr);
             
             printf("Source port: %u\n", ntohs(udp->uh_sport));
@@ -382,8 +387,8 @@ void process_packet(struct packet_t *pk)
                 return;
             }
 
-            icmp = (struct icmphdr *)(packet + SIZE_ETHERNET + ip_size);
-            //memcpy(icmp, packet + SIZE_ETHERNET +ip_size, sizeof(*udp));
+            //icmp = (struct icmphdr *)(packet + SIZE_ETHERNET + ip_size);
+            memcpy(icmp, packet + SIZE_ETHERNET +ip_size, sizeof(*udp));
             transport_size = sizeof(struct icmphdr);
             
             printf("ICMP type: %u\n", icmp->type);
