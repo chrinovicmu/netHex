@@ -1,6 +1,7 @@
 
 CC := clang
-CFLAGS := -O2 -Wall -Wpedantic -Wextra -Wno-Wunused-parameter,function,variable -fsanitize=undefined,thread,alignment 
+CFLAGS := -O2 
+#-Wall -Wpedantic -Wextra -Wno-Wunused-parameter,function,variable -fsanitize=undefined,thread,alignment 
 LDFLAGS := -lpcap -pthread
 SRC_DIR := src
 TARGET := ./main

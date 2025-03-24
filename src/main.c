@@ -397,7 +397,7 @@ void process_ipv6_transport(const u_char *packet, int packet_len,
  * functionality 
  * */
 
-void process_upv6_header(const u_char *packet, int packet_len, int *offset, uint8_t *next_header)
+void process_ipv6_header(const u_char *packet, int packet_len, int *offset, uint8_t *next_header)
 {
     struct ip6_hdr *ip6_header = (struct ip6_hdr *)(packet + SIZE_ETHERNET);
 
@@ -410,14 +410,38 @@ void process_upv6_header(const u_char *packet, int packet_len, int *offset, uint
 
     while(!done && *offset < packet_len)
     {
+        switch (*next_header)
+        {
+            
+            case IPPROTO_HOPOPTS:
 
+            case IPPROTO_ROUTING:
 
+            case IPPROTO_FRAGMENT:
 
+            case IPPROTO_DSTOPTS:
+                {
+                    if(*offset + 2 > packet_len)
+                    {
+                        return;
+                    }
+
+                    uint8_t ext_len = packet[*offset + 1];
+
+                    *next_header = packet[*offset];
+
+                    *offset += (ext_len + 8) * 8; 
+                }
+                break;
+
+            default:
+                
+                done = true; 
+                break; 
+        }
     }
-
-
-
 }
+
 
 void process_packet(struct packet_t *pk)
 {
@@ -490,8 +514,10 @@ void process_packet(struct packet_t *pk)
         uint8_t next_header = ip6_header.ip6_nxt; 
 
         process_ipv6_transport(packet, pk->p_len, SIZE_ETHERNET + sizeof(ip6_header), next_header);
-
-        
+      
+    }else 
+    {
+        printf("Unsupported Ethernet type: 0x%04x\n", ether_type);
     }
     
 
@@ -546,15 +572,18 @@ void process_packet(struct packet_t *pk)
                 printf("packet_t too small for UDP header\n");
                 return;
             }
-            
-    
+             
             memcpy(udp, packet + SIZE_ETHERNET + ip_size, sizeof(udp));
             transport_size = sizeof(struct udphdr);
-            
-            printf("Source port: %u\n", ntohs(udp->uh_sport));
-            printf("Destination port: %u\n", ntohs(udp->uh_dport));
-            printf("UDP length: %u\n", ntohs(udp->uh_ulen));
-            printf("UDP checksum: 0x%04x\n", ntohs(udp->uh_sum));
+
+            char buffer[128]; 
+            int len = snprintf(buffer, sizeof(buffer), "Source port: %u\nDestination port: %u\nUDP length : %u\nUDP Checksum: 0x%04x\n",
+                               ntohs(udp->uh_sport), ntohs(udp->uh_dport), ntohs(udp->uh_ulen), ntohs(udp->uh_sum));
+
+            if (len > 0 && len < sizeof(buffer))
+            {
+                write(STDOUT_FILENO, buffer, len); 
+ 
             
             payload = packet + SIZE_ETHERNET + ip_size + transport_size;
             int udp_len = ntohs(udp->uh_ulen);
@@ -582,14 +611,19 @@ void process_packet(struct packet_t *pk)
                 return;
             }
 
-            //icmp = (struct icmphdr *)(packet + SIZE_ETHERNET + ip_size);
             memcpy(icmp, packet + SIZE_ETHERNET +ip_size, sizeof(*udp));
             transport_size = sizeof(struct icmphdr);
             
-            printf("ICMP type: %u\n", icmp->type);
-            printf("ICMP Code: %u\n", icmp->code);
-            printf("ICMP Checksum: 0x%04x\n", ntohs(icmp->checksum));
-            
+            char write_buufer[128];
+
+            int len = snprintf(buffer, sizeof(buffer), "ICMP type: %u\nICMP Code: %u\nICMP Checksum: 0x%04x\n",
+                   icmp->type, icmp->code, ntohs(icmp->checksum));
+
+            if (len > 0 && len < sizeof(buffer)) 
+            {
+                write(STDOUT_FILENO, buffer, len);
+            }
+
             payload = packet + SIZE_ETHERNET + ip_size + transport_size;
             payload_size = ntohs(ip->ip_len) - (ip_size + transport_size);
             break;
@@ -606,7 +640,7 @@ void process_packet(struct packet_t *pk)
         print_payload(payload, payload_size);
     }
 }
-
+}
 
 /** Ring Buffer Producer Thread Function which captures incomming packets */
 
@@ -616,6 +650,10 @@ void *capture_packets(void *arg)
     char *device; 
     pcap_if_t *alldevices;
     char errbuff[PCAP_ERRBUF_SIZE];
+
+    char combined_filter[256];
+    snprintf(combined_filter, sizeof(combined_filter), "(%s) or (ip6 and %s)", filter_exp, filter_exp);
+
 
     if(pcap_findalldevs(&alldevices, errbuff) == -1)
     {
@@ -663,7 +701,7 @@ void *capture_packets(void *arg)
         exit(EXIT_FAILURE); 
     }
 
-    if(pcap_compile(handle, &fp, filter_exp, 0, net) == -1)
+    if(pcap_compile(handle, &fp, combined_filter, 0, net) == -1)
     {
         fprintf(stderr, "Couldn't parse filter %s : %s\n", filter_exp, pcap_geterr(handle));
         pcap_freecode(&fp);
@@ -679,7 +717,7 @@ void *capture_packets(void *arg)
     if(pcap_setfilter(handle, &fp) == -1)
     {
 
-        fprintf(stderr, "Couldn't installl filter %s: %s\n", filter_exp, pcap_geterr(handle));
+        fprintf(stderr, "Couldn't installl filter %s: %s\n", combined_filter, pcap_geterr(handle));
         pcap_freecode(&fp);
         pcap_close(handle);
         pcap_freealldevs(alldevices);
@@ -757,17 +795,19 @@ void * dequeue_ring_buffer(void *args)
 
 int main(int argc, char *argv[])
 {
-    if(argc != 2)
+    if(argc > 3)
     {
-        printf("Error: incude protocol for filtering , e.g 'udp', 'tcp\n");
-        printf("Usage: make -PF <filter>\n");
+        printf("Error: include protocol for filtering , e.g 'udp', 'tcp', 'icmp', 'icmp6'\n");
+        printf("Usage: make PF=<protocol>\n");
         exit(EXIT_FAILURE);
     }
+
     pthread_mutex_init(&ring_buffer.mutex, NULL);
     pthread_cond_init(&ring_buffer.cond_producer, NULL);
     pthread_cond_init(&ring_buffer.cond_consumer, NULL);
 
     pthread_t producer_thread;
+
     if(pthread_create(&producer_thread, NULL, capture_packets, (void *)argv[1])!= 0 )
     {
         fprintf(stderr, "Error creating capture thread\n");
@@ -775,6 +815,7 @@ int main(int argc, char *argv[])
     }
 
     pthread_t consumer_thread;
+
     if(pthread_create(&consumer_thread, NULL, dequeue_ring_buffer, NULL)!= 0)
     {
         fprintf(stderr, "Error creating consumer thread\n");
@@ -786,6 +827,7 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Erro joining producer thread\n");
         exit(EXIT_FAILURE);
     }
+
     if(pthread_join(consumer_thread, NULL) != 0)
     {
         fprintf(stderr, "Error joining consumer thread\n");
