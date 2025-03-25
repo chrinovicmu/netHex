@@ -48,14 +48,16 @@ make build
 ```
 
 ## Usage
-Will require root privileges 
 
+for IPv4 
 ```bash
-make run PF=<protocol>
-
-//EXAMPLE 
-make run PF="tcp" or for ipv6 = "ip6 tcp"
+make run PF="<protocol>" 
 ```
+for IPv6
+```
+make run PF="ip6 <protocol>"
+```
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
