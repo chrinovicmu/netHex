@@ -64,8 +64,12 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-[To be determined ]
+    MIT
 
 ## Disclaimer
 
 This tool is for educational and network diagnostic purposes. Always ensure you have proper authorization before capturing network traffic.
+
+## Contact 
+
+If you notice any potential bugs and gave suggestions for improvements, Please feel free to contact me through my contact links on [My Website](https://ubchrinovic.com)
