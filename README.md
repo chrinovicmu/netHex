@@ -51,7 +51,10 @@ make build
 Will require root privileges 
 
 ```bash
-make run PF="protocol" 
+make run PF=<protocol>
+
+//EXAMPLE 
+make run PF="tcp" or for ipv6 = "ip6 tcp"
 ```
 ## Contributing
 
