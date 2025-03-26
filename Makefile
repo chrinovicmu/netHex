@@ -1,6 +1,6 @@
 
 CC := clang
-CFLAGS := -O2 
+CFLAGS := -O2 -fsanitize=thread,undefined,alignment 
 #-Wall -Wpedantic -Wextra -Wno-Wunused-parameter,function,variable -fsanitize=undefined,thread,alignment 
 LDFLAGS := -lpcap -pthread
 SRC_DIR := src

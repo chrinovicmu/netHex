@@ -1,4 +1,4 @@
-# Pack-Sniff : Network Packet Sniffer
+# NetHex : Network Diagnosis and Packet Sniffer 
 
 ## Overview
 
@@ -11,6 +11,7 @@ This is a lightweight, high-performance network packet capture and analysis tool
 ## Features
 
 - Live network interface concurrent packet capture
+- IPv4 and IPv6 support
 - Support for multiple network protocols (TCP, UDP, ICMP)
 - Configurable packet filtering
 - packet information such as destination, source ip address and timestamp  

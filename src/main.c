@@ -49,6 +49,28 @@ SOFTWARE.
 #include <stdalign.h>
 #include <stdbool.h>
 
+#if defined(DEBUG)
+
+    /*ignore. for debugging purpose*/
+
+    #define PRINT_IP(x)\
+        printf("%u.%u.%u.%u\n", \
+            ((x) >> 24) & 0xFF, \
+            ((x) >> 16)  & 0xFF, \
+            ((x) >> 8) & 0xFF, \
+            (x) & 0xFF)
+
+    #define PRINT_GENERIC(x) \
+        _Generic((x), \
+                int: printf("%d\n", (x)), \
+                unsigned int : printf("%d\n", (x)),\
+                float: printf("%f\n", (x)), \
+                double: printf("%lf\n", (x)), \
+                char: printf("%c\n", (x)), \
+                char*: printf("%s\n", (x)))
+
+#endif 
+
 #define SIZE_ETHERNET 14
 
 /*maximum netork transmisson unit */
@@ -63,24 +85,6 @@ SOFTWARE.
 /*padding for packet structure*/
 #define PACKET_PADDING (CACHE_LINE_SIZE - ((NETWORK_MTU + sizeof(struct pcap_pkthdr)\
     + sizeof(int) + sizeof(struct timeval)) % CACHE_LINE_SIZE))
-
-
-/*ignore */ 
-#define PRINT_IP(x)\
-    printf("%u.%u.%u.%u\n", \
-           ((x) >> 24) & 0xFF, \
-           ((x) >> 16)  & 0xFF, \
-           ((x) >> 8) & 0xFF, \
-           (x) & 0xFF)
-
-#define PRINT_GENERIC(x) \
-    _Generic((x), \
-             int: printf("%d\n", (x)), \
-             unsigned int : printf("%d\n", (x)),\
-             float: printf("%f\n", (x)), \
-             double: printf("%lf\n", (x)), \
-             char: printf("%c\n", (x)), \
-             char*: printf("%s\n", (x)))
 
 
 struct packet_t{
@@ -515,7 +519,8 @@ void process_packet(struct packet_t *pk)
 
         process_ipv6_transport(packet, pk->p_len, SIZE_ETHERNET + sizeof(ip6_header), next_header);
       
-    }else 
+    }
+    else 
     {
         printf("Unsupported Ethernet type: 0x%04x\n", ether_type);
     }
