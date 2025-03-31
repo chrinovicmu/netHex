@@ -418,7 +418,7 @@ void process_ipv6_transport(const u_char *packet, int packet_len,
             printf("ICMPv6 Type: %u\nICMPv6 Code: %u\n",icmp6_header.icmp6_type, icmp6_header.icmp6_code);
 
             payload = (u_char*)(packet + offset + transport_size);
-            payload_size = packet_len + (offset + transport_size);
+            payload_size = packet_len - (offset + transport_size);
             break; 
 
 
