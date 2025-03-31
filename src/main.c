@@ -28,9 +28,7 @@ SOFTWARE.
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <pcap.h>
 #include <string.h>
-#include <stdint.h>
 #include <ctype.h>
 #include <net/ethernet.h>
 #include <netinet/ip.h>
@@ -48,6 +46,8 @@ SOFTWARE.
 #include <unistd.h>
 #include <stdalign.h>
 #include <stdbool.h>
+#include <stdarg.h>
+#include <errno.h>
 
 #if defined(DEBUG)
 
@@ -118,6 +118,11 @@ struct ring_buffer_t{
 
 static struct ring_buffer_t ring_buffer; 
 
+struct capture_args {
+    char *filter_exp;
+    char *device_name;
+};
+
 int is_rb_full(void)
 {
     return ring_buffer.count == RING_BUFFER_SIZE; 
@@ -127,6 +132,39 @@ int is_rb_empty(void)
     return ring_buffer.count == 0; 
 }
 
+typedef enum {
+    LOG_ERROR,
+    LOG_WARNING,
+    LOG_INFO
+} log_level_t;
+
+void logger(log_level_t level, const char *message, ...) {
+    va_list args;
+    va_start(args, message);
+    
+    FILE *output = stderr;
+    const char *prefix = "";
+    
+    switch(level) {
+        case LOG_ERROR:   prefix = "ERROR: "; break;
+        case LOG_WARNING: prefix = "WARNING: "; output = stdout; break;
+        case LOG_INFO:    prefix = "INFO: "; output = stdout; break;
+    }
+    
+    fprintf(output, "%s", prefix);
+    vfprintf(output, message, args);
+    
+    size_t len = strlen(message);
+    if (len > 0 && message[len-1] != '\n') {
+        fprintf(output, "\n");
+    }
+    
+    va_end(args);
+    
+    if (level == LOG_ERROR) {
+        exit(EXIT_FAILURE); // Or other error handling
+    }
+}
 
 /*this is the callback function for the packet capturing 
  *caputures individual packet and temporary store in ring buffer before processing 
@@ -152,7 +190,7 @@ void packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char
 
     if(header->len > NETWORK_MTU)
     {
-        fprintf(stderr, "packet too large! discarded\n");
+        logger(LOG_WARNING, "Oversized packet (%u bytes > %u MTU) discarded", header->len, NETWORK_MTU);
         pthread_mutex_unlock(&ring_buffer.mutex);
         return;
     }
@@ -192,15 +230,18 @@ void print_compiled_filter(struct bpf_program bf)
 
 void print_hex_ascii_line(const u_char *payload, int len, int offset) 
 {
-    char buffer[80]; // Fixed size for one 16-byte line
+    char buffer[128]; // Fixed size for one 16-byte line
     const u_char *ch = payload;
     int bytes_remaining = len;
     int current_offset = offset;
 
-    if (len < 0) return; 
+    if (len < 0 || len > 16) {
+        logger(LOG_ERROR, "Invalid length for hex_ascii_line: %d", len);
+        // len = (len < 0) ? 0 : 16; // Clamp to valid range --> we can do something like this too || TODO: Chronovic
+        return;
+    }
 
     /* Process payload in 16-byte chunks */ 
-
     while (bytes_remaining > 0) 
     {
         int chunk_len = (bytes_remaining > 16) ? 16 : bytes_remaining;
@@ -587,8 +628,8 @@ void process_packet(struct packet_t *pk)
 
             if (len > 0 && len < sizeof(buffer))
             {
-                write(STDOUT_FILENO, buffer, len); 
- 
+                write(STDOUT_FILENO, buffer, len);
+            }
             
             payload = packet + SIZE_ETHERNET + ip_size + transport_size;
             int udp_len = ntohs(udp->uh_ulen);
@@ -621,7 +662,7 @@ void process_packet(struct packet_t *pk)
             
             char write_buufer[128];
 
-            int len = snprintf(buffer, sizeof(buffer), "ICMP type: %u\nICMP Code: %u\nICMP Checksum: 0x%04x\n",
+            len = snprintf(buffer, sizeof(buffer), "ICMP type: %u\nICMP Code: %u\nICMP Checksum: 0x%04x\n",
                    icmp->type, icmp->code, ntohs(icmp->checksum));
 
             if (len > 0 && len < sizeof(buffer)) 
@@ -645,14 +686,14 @@ void process_packet(struct packet_t *pk)
         print_payload(payload, payload_size);
     }
 }
-}
 
 /** Ring Buffer Producer Thread Function which captures incomming packets */
 
 void *capture_packets(void *arg)
 {
-    char *filter_exp = (char*)arg;
-    char *device; 
+    struct capture_args *args = (struct capture_args *)arg;
+    char *filter_exp = args->filter_exp;
+    char *device = args->device_name;; 
     pcap_if_t *alldevices;
     char errbuff[PCAP_ERRBUF_SIZE];
 
@@ -662,18 +703,20 @@ void *capture_packets(void *arg)
 
     if(pcap_findalldevs(&alldevices, errbuff) == -1)
     {
-        fprintf(stderr, "Couldn find devices %s\n", errbuff); 
-        exit(EXIT_FAILURE);
+        logger(LOG_ERROR, "Couldn't find devices: %s", errbuff);
     }
 
     if(alldevices == NULL)
     {
-        fprintf(stderr, "No devices found\n");
+        logger(LOG_ERROR, "No network devices found");
         pcap_freealldevs(alldevices);
-        exit(EXIT_FAILURE);
     }
-    device = alldevices->name; 
 
+    // Use the device from args if provided, otherwise use default
+    if (device == NULL) {
+        device = alldevices->name;
+        printf("Using default interface: %s\n", device);
+    }
 
     pcap_t *handle;
     struct bpf_program fp;
@@ -682,7 +725,7 @@ void *capture_packets(void *arg)
         
     if(pcap_lookupnet(device, &net, &mask, errbuff) == -1)
     {
-        fprintf(stderr, "can't get netmask for device %s: %s\n", device, errbuff);
+        logger(LOG_WARNING, "Can't get netmask for device %s: %s (continuing with defaults)", device, errbuff);
         net = 0;
         mask = 0; 
     } 
@@ -691,7 +734,7 @@ void *capture_packets(void *arg)
 
     if(handle == NULL)
     {
-        fprintf(stderr, "couldn't open device %s: %s\n", device, errbuff);
+        logger(LOG_ERROR, "Couldn't open device %s: %s", device, errbuff);
         pcap_freealldevs(alldevices);
         exit(EXIT_FAILURE);
     }
@@ -700,7 +743,7 @@ void *capture_packets(void *arg)
 
     if(dlt != DLT_EN10MB)
     {
-        fprintf(stderr, "Device %s doesn't provide ethenet header\n", device);
+        logger(LOG_ERROR, "Device %s provides unsupported link type %d (expected Ethernet)", device, dlt);
         pcap_close(handle);
         pcap_freealldevs(alldevices);
         exit(EXIT_FAILURE); 
@@ -708,11 +751,10 @@ void *capture_packets(void *arg)
 
     if(pcap_compile(handle, &fp, combined_filter, 0, net) == -1)
     {
-        fprintf(stderr, "Couldn't parse filter %s : %s\n", filter_exp, pcap_geterr(handle));
+        logger(LOG_ERROR, "Couldn't parse filter '%s': %s", filter_exp, pcap_geterr(handle));
         pcap_freecode(&fp);
         pcap_close(handle);
         pcap_freealldevs(alldevices);
-        exit(EXIT_FAILURE);
     }
 
     /*
@@ -722,7 +764,7 @@ void *capture_packets(void *arg)
     if(pcap_setfilter(handle, &fp) == -1)
     {
 
-        fprintf(stderr, "Couldn't installl filter %s: %s\n", combined_filter, pcap_geterr(handle));
+        logger(LOG_ERROR, "Failed to install filter '%s': %s", combined_filter, pcap_geterr(handle));
         pcap_freecode(&fp);
         pcap_close(handle);
         pcap_freealldevs(alldevices);
@@ -736,7 +778,7 @@ void *capture_packets(void *arg)
 
     if(result == -1)
     {
-        fprintf(stderr, "Error in loop %s\n", pcap_geterr(handle));
+        logger(LOG_ERROR, "Capture loop failed: %s", pcap_geterr(handle));
     }
     pthread_mutex_lock(&ring_buffer.mutex);
 
@@ -807,36 +849,50 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
+    struct capture_args args;
+    args.filter_exp = (argc > 1) ? argv[1] : "";
+    args.device_name = (argc > 2) ? argv[2] : NULL;
+
     pthread_mutex_init(&ring_buffer.mutex, NULL);
     pthread_cond_init(&ring_buffer.cond_producer, NULL);
     pthread_cond_init(&ring_buffer.cond_consumer, NULL);
 
+    if (pthread_mutex_init(&ring_buffer.mutex, NULL) != 0) {
+        logger(LOG_ERROR, "Failed to initialize mutex: %s", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    if (pthread_cond_init(&ring_buffer.cond_producer, NULL) != 0) {
+        logger(LOG_ERROR, "Error initializing producer condition variable: %s", strerror(errno));
+        pthread_mutex_destroy(&ring_buffer.mutex);
+    }
+    if (pthread_cond_init(&ring_buffer.cond_consumer, NULL) != 0) {
+        logger(LOG_ERROR, "Error initializing consumer condition variable: %s", strerror(errno));
+        pthread_mutex_destroy(&ring_buffer.mutex);
+        pthread_cond_destroy(&ring_buffer.cond_producer);
+    }
+
     pthread_t producer_thread;
 
-    if(pthread_create(&producer_thread, NULL, capture_packets, (void *)argv[1])!= 0 )
+    if (pthread_create(&producer_thread, NULL, capture_packets, &args) != 0 )
     {
-        fprintf(stderr, "Error creating capture thread\n");
-        exit(EXIT_FAILURE);
+        logger(LOG_ERROR, "Failed to create capture thread: %s", strerror(errno));
     }
 
     pthread_t consumer_thread;
 
     if(pthread_create(&consumer_thread, NULL, dequeue_ring_buffer, NULL)!= 0)
     {
-        fprintf(stderr, "Error creating consumer thread\n");
-        exit(EXIT_FAILURE);
+        logger(LOG_ERROR, "Error creating consumer thread: %s", strerror(errno));
     }
 
     if(pthread_join(producer_thread, NULL) != 0)
     {
-        fprintf(stderr, "Erro joining producer thread\n");
-        exit(EXIT_FAILURE);
+        logger(LOG_ERROR, "Error joining producer thread: %s", strerror(errno));
     }
 
     if(pthread_join(consumer_thread, NULL) != 0)
     {
-        fprintf(stderr, "Error joining consumer thread\n");
-        exit(EXIT_FAILURE);
+        logger(LOG_ERROR, "Error joining consumer thread: %s", strerror(errno));
     }
 
     pthread_mutex_destroy(&ring_buffer.mutex);
@@ -846,6 +902,3 @@ int main(int argc, char *argv[])
 
     return EXIT_SUCCESS;
 }
-
-
-
