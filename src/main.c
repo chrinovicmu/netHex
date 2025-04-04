@@ -138,7 +138,8 @@ typedef enum {
     LOG_INFO
 } log_level_t;
 
-void logger(log_level_t level, const char *message, ...) {
+void logger(log_level_t level, const char *message, ...) 
+{
     va_list args;
     va_start(args, message);
     
@@ -146,22 +147,32 @@ void logger(log_level_t level, const char *message, ...) {
     const char *prefix = "";
     
     switch(level) {
-        case LOG_ERROR:   prefix = "ERROR: "; break;
-        case LOG_WARNING: prefix = "WARNING: "; output = stdout; break;
-        case LOG_INFO:    prefix = "INFO: "; output = stdout; break;
+        case LOG_ERROR:
+            prefix = "ERROR: ";
+            break;
+        case LOG_WARNING:
+            prefix = "WARNING: "; 
+            output = stdout;
+            break;
+        case LOG_INFO:    
+            prefix = "INFO: ";
+            output = stdout;
+            break;
     }
     
     fprintf(output, "%s", prefix);
     vfprintf(output, message, args);
     
     size_t len = strlen(message);
-    if (len > 0 && message[len-1] != '\n') {
+    if (len > 0 && message[len-1] != '\n') 
+    {
         fprintf(output, "\n");
     }
     
     va_end(args);
     
-    if (level == LOG_ERROR) {
+    if (level == LOG_ERROR)
+    {
         exit(EXIT_FAILURE); // Or other error handling
     }
 }
@@ -691,9 +702,10 @@ void process_packet(struct packet_t *pk)
 
 void *capture_packets(void *arg)
 {
-    struct capture_args *args = (struct capture_args *)arg;
-    char *filter_exp = args->filter_exp;
-    char *device = args->device_name;; 
+   // struct capture_args *args = (struct capture_args *)arg;
+    //
+    char *filter_exp = (char *)arg;
+    char *device; 
     pcap_if_t *alldevices;
     char errbuff[PCAP_ERRBUF_SIZE];
 
@@ -710,13 +722,9 @@ void *capture_packets(void *arg)
     {
         logger(LOG_ERROR, "No network devices found");
         pcap_freealldevs(alldevices);
+        return NULL; 
     }
-
-    // Use the device from args if provided, otherwise use default
-    if (device == NULL) {
-        device = alldevices->name;
-        printf("Using default interface: %s\n", device);
-    }
+    device = alldevices->name;
 
     pcap_t *handle;
     struct bpf_program fp;
@@ -736,7 +744,7 @@ void *capture_packets(void *arg)
     {
         logger(LOG_ERROR, "Couldn't open device %s: %s", device, errbuff);
         pcap_freealldevs(alldevices);
-        exit(EXIT_FAILURE);
+        return NULL;
     }
 
     int dlt = pcap_datalink(handle);
@@ -746,7 +754,7 @@ void *capture_packets(void *arg)
         logger(LOG_ERROR, "Device %s provides unsupported link type %d (expected Ethernet)", device, dlt);
         pcap_close(handle);
         pcap_freealldevs(alldevices);
-        exit(EXIT_FAILURE); 
+        return NULL;
     }
 
     if(pcap_compile(handle, &fp, combined_filter, 0, net) == -1)
@@ -755,6 +763,7 @@ void *capture_packets(void *arg)
         pcap_freecode(&fp);
         pcap_close(handle);
         pcap_freealldevs(alldevices);
+        return NULL;
     }
 
     /*
@@ -763,12 +772,11 @@ void *capture_packets(void *arg)
 
     if(pcap_setfilter(handle, &fp) == -1)
     {
-
         logger(LOG_ERROR, "Failed to install filter '%s': %s", combined_filter, pcap_geterr(handle));
         pcap_freecode(&fp);
         pcap_close(handle);
         pcap_freealldevs(alldevices);
-        exit(EXIT_FAILURE);
+        return NULL; 
     }
 
     const struct pcap_pkthdr header; // packet header 
@@ -779,6 +787,10 @@ void *capture_packets(void *arg)
     if(result == -1)
     {
         logger(LOG_ERROR, "Capture loop failed: %s", pcap_geterr(handle));
+        pcap_freecode(&fp);
+        pcap_close(handle);
+        pcap_freealldevs(alldevices);
+        return NULL;
     }
     pthread_mutex_lock(&ring_buffer.mutex);
 
@@ -848,11 +860,11 @@ int main(int argc, char *argv[])
         printf("Usage: make PF=<protocol>\n");
         exit(EXIT_FAILURE);
     }
-
+/*
     struct capture_args args;
     args.filter_exp = (argc > 1) ? argv[1] : "";
     args.device_name = (argc > 2) ? argv[2] : NULL;
-
+*/
     pthread_mutex_init(&ring_buffer.mutex, NULL);
     pthread_cond_init(&ring_buffer.cond_producer, NULL);
     pthread_cond_init(&ring_buffer.cond_consumer, NULL);
@@ -873,9 +885,10 @@ int main(int argc, char *argv[])
 
     pthread_t producer_thread;
 
-    if (pthread_create(&producer_thread, NULL, capture_packets, &args) != 0 )
+    if (pthread_create(&producer_thread, NULL, capture_packets, argv[1]) != 0 )
     {
         logger(LOG_ERROR, "Failed to create capture thread: %s", strerror(errno));
+        exit(EXIT_FAILURE); 
     }
 
     pthread_t consumer_thread;
@@ -883,16 +896,19 @@ int main(int argc, char *argv[])
     if(pthread_create(&consumer_thread, NULL, dequeue_ring_buffer, NULL)!= 0)
     {
         logger(LOG_ERROR, "Error creating consumer thread: %s", strerror(errno));
+        exit(EXIT_FAILURE);
     }
 
     if(pthread_join(producer_thread, NULL) != 0)
     {
         logger(LOG_ERROR, "Error joining producer thread: %s", strerror(errno));
+        exit(EXIT_FAILURE);
     }
 
     if(pthread_join(consumer_thread, NULL) != 0)
     {
         logger(LOG_ERROR, "Error joining consumer thread: %s", strerror(errno));
+        exit(EXIT_FAILURE);
     }
 
     pthread_mutex_destroy(&ring_buffer.mutex);
