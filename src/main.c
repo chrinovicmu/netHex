@@ -873,11 +873,15 @@ int main(int argc, char *argv[])
         logger(LOG_ERROR, "Failed to initialize mutex: %s", strerror(errno));
         exit(EXIT_FAILURE);
     }
-    if (pthread_cond_init(&ring_buffer.cond_producer, NULL) != 0) {
+
+    if (pthread_cond_init(&ring_buffer.cond_producer, NULL) != 0)
+    {
         logger(LOG_ERROR, "Error initializing producer condition variable: %s", strerror(errno));
         pthread_mutex_destroy(&ring_buffer.mutex);
     }
-    if (pthread_cond_init(&ring_buffer.cond_consumer, NULL) != 0) {
+
+    if (pthread_cond_init(&ring_buffer.cond_consumer, NULL) != 0) 
+    {
         logger(LOG_ERROR, "Error initializing consumer condition variable: %s", strerror(errno));
         pthread_mutex_destroy(&ring_buffer.mutex);
         pthread_cond_destroy(&ring_buffer.cond_producer);
