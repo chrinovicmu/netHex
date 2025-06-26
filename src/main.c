@@ -87,7 +87,14 @@ SOFTWARE.
     + sizeof(int) + sizeof(struct timeval)) % CACHE_LINE_SIZE))
 
 
-struct packet_t{
+/* SYN flood detection parameters */ 
+
+#define MAX_IPS 1024
+#define SYN_THRESHOLD 100
+#define TIME_WINDOW 10
+
+struct packet_t
+{
 
     u_char p_packet[NETWORK_MTU];
     struct pcap_pkthdr p_header; 
@@ -98,8 +105,8 @@ struct packet_t{
 }__attribute__((aligned(CACHE_LINE_SIZE)));
 
 
-struct ring_buffer_t{
-
+struct ring_buffer_t
+{
     struct packet_t packet_buffer[RING_BUFFER_SIZE];
 
     uint32_t head;
@@ -118,10 +125,26 @@ struct ring_buffer_t{
 
 static struct ring_buffer_t ring_buffer; 
 
-struct capture_args {
-    char *filter_exp;
-    char *device_name;
-};
+static bool syn_flood_detection_enabled = false; 
+
+struct ip_entry_t 
+{
+    char ip[INET_ADDRSTRLEN]; 
+    int syn_count; 
+    time_t first_seen; 
+}; 
+
+static struct ip_entry_t ip_table[MAX_IPS]; 
+static pthread_mutex_t ip_table_mutex = PTHREAD_MUTEX_INITIALIZER; 
+
+
+struct capture_args{
+    const char *mode;
+    const char *filter_exp; 
+}args; 
+
+struct capture_args args; 
+
 
 int is_rb_full(void)
 {
@@ -175,6 +198,85 @@ void logger(log_level_t level, const char *message, ...)
     {
         exit(EXIT_FAILURE); // Or other error handling
     }
+}
+
+char *extract_src_ip(struct packet_t *pk)
+{
+    static char src_ip_str[INET6_ADDRSTRLEN];
+
+    const u_char *packet = pk->p_packet;
+    struct ether_header *eth_hdr = (struct ether_header *)packet;
+
+    uint16_t eth_type = ntohs(eth_hdr->ether_type);
+
+    if (eth_type == ETHERTYPE_IP)
+    {
+        // IPv4
+        struct iphdr *ip4_hdr = (struct iphdr *)(packet + sizeof(struct ether_header));
+        struct in_addr src_addr;
+        src_addr.s_addr = ip4_hdr->saddr;
+
+        if (inet_ntop(AF_INET, &src_addr, src_ip_str, sizeof(src_ip_str)) == NULL)
+            return NULL;
+
+        return src_ip_str;
+    }
+    else if (eth_type == ETHERTYPE_IPV6)
+    {
+        // IPv6
+        struct ip6_hdr *ip6_hdr = (struct ip6_hdr *)(packet + sizeof(struct ether_header));
+
+        if (inet_ntop(AF_INET6, &ip6_hdr->ip6_src, src_ip_str, sizeof(src_ip_str)) == NULL)
+            return NULL;
+
+        return src_ip_str;
+    }
+
+    // Not an IP packet
+    return NULL;
+}
+
+void detect_syn_flood(const char *src_ip)
+{
+    time_t now = time(NULL);
+
+    pthread_mutex_lock(&ip_table_mutex);
+
+    for (int i = 0; i < MAX_IPS; ++i) 
+    {
+        if (strcmp(ip_table[i].ip, src_ip) == 0)
+        {
+            if (now - ip_table[i].first_seen > TIME_WINDOW) 
+            {
+                ip_table[i].syn_count = 1;
+                ip_table[i].first_seen = now;
+            } else {
+
+                ip_table[i].syn_count++;
+
+                if (ip_table[i].syn_count > SYN_THRESHOLD) 
+                {
+                    logger(LOG_WARNING, "Possible SYN Flood from %s", src_ip);
+                    ip_table[i].syn_count = 0;
+                    ip_table[i].first_seen = now;
+                }
+            }
+            pthread_mutex_unlock(&ip_table_mutex);
+            return;
+        }
+    }
+    for (int i = 0; i < MAX_IPS; ++i) 
+    {
+        if (ip_table[i].ip[0] == '\0')
+        {
+            strncpy(ip_table[i].ip, src_ip, INET_ADDRSTRLEN);
+
+            ip_table[i].syn_count = 1;
+            ip_table[i].first_seen = now;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&ip_table_mutex);
 }
 
 /*this is the callback function for the packet capturing 
@@ -808,8 +910,9 @@ void *capture_packets(void *arg)
 
 /* Ring Buffer Consumer Thread Function which processes individual packets in the buffer */
 
-void * dequeue_ring_buffer(void *args)
+void * dequeue_ring_buffer(void *arg)
 {
+    struct capture_args *args = (struct capture_args*)arg;
 
     struct tm local_time_buf; 
     char buffer[100];
@@ -835,18 +938,29 @@ void * dequeue_ring_buffer(void *args)
 
         pthread_mutex_unlock(&ring_buffer.mutex);
 
-        printf("\n");
-       // sleep(1);
-        printf("PACKET SIZE : %u bytes\n", pk->p_len);
-        process_packet(pk);
+        if(strcmp(args->mode, "synflood") == 0)
+        {
+            char *src_ip = extract_src_ip(pk);
 
-        struct timeval now = pk->p_time_capture;
-        localtime_r(&now.tv_sec, &local_time_buf);
-        strftime(buffer, sizeof(buffer), "%H:%M:%S", &local_time_buf);
-        printf("\npacket_t Time Stamp: %s.%06ld\n", buffer, now.tv_usec);
+            if(src_ip)
+            {
+                detect_syn_flood(src_ip); 
+            }
+        }
+        else 
+        {
+            printf("\n");
+            printf("PACKET SIZE : %u bytes\n", pk->p_len);
+            process_packet(pk);
 
-        printf("\n-------------------------------------------------------------------\n");
-        
+            struct timeval now = pk->p_time_capture;
+            localtime_r(&now.tv_sec, &local_time_buf);
+
+            strftime(buffer, sizeof(buffer), "%H:%M:%S", &local_time_buf);
+            printf("\npacket_t Time Stamp: %s.%06ld\n", buffer, now.tv_usec);
+
+            printf("\n-------------------------------------------------------------------\n");
+        }
     }
     return NULL; 
 }
@@ -854,20 +968,27 @@ void * dequeue_ring_buffer(void *args)
 
 int main(int argc, char *argv[])
 {
-    if(argc > 3)
+    
+    if (argc < 3) 
     {
-        printf("Error: include protocol for filtering , e.g 'udp', 'tcp', 'icmp', 'icmp6'\n");
-        printf("Usage: make PF=<protocol>\n");
+        printf("Usage: %s <mode> <filter>\n", argv[0]);
+        printf("mode: normal | synflood\n");
+        printf("filter: e.g. \"ip6 tcp\" or \"tcp\" or \"udp\"\n");
         exit(EXIT_FAILURE);
     }
-/*
-    struct capture_args args;
-    args.filter_exp = (argc > 1) ? argv[1] : "";
-    args.device_name = (argc > 2) ? argv[2] : NULL;
-*/
-    pthread_mutex_init(&ring_buffer.mutex, NULL);
-    pthread_cond_init(&ring_buffer.cond_producer, NULL);
-    pthread_cond_init(&ring_buffer.cond_consumer, NULL);
+
+    const char *mode = argv[1]; 
+    const char *filter_exp = argv[2];
+
+    if(strcmp(mode, "normal") != 0 && strcmp(mode, "synflood") != 0) 
+    {
+        fprintf(stderr, "Unknown mode '%s'. Allowed modes: normal, synflood\n", mode);
+        exit(EXIT_FAILURE);
+    }
+
+    args.mode = mode; 
+    args.filter_exp = filter_exp; 
+
 
     if (pthread_mutex_init(&ring_buffer.mutex, NULL) != 0) {
         logger(LOG_ERROR, "Failed to initialize mutex: %s", strerror(errno));
@@ -889,7 +1010,7 @@ int main(int argc, char *argv[])
 
     pthread_t producer_thread;
 
-    if (pthread_create(&producer_thread, NULL, capture_packets, argv[1]) != 0 )
+    if (pthread_create(&producer_thread, NULL, capture_packets, &args) != 0 )
     {
         logger(LOG_ERROR, "Failed to create capture thread: %s", strerror(errno));
         exit(EXIT_FAILURE); 
@@ -897,7 +1018,7 @@ int main(int argc, char *argv[])
 
     pthread_t consumer_thread;
 
-    if(pthread_create(&consumer_thread, NULL, dequeue_ring_buffer, NULL)!= 0)
+    if(pthread_create(&consumer_thread, NULL, dequeue_ring_buffer, &args)!= 0)
     {
         logger(LOG_ERROR, "Error creating consumer thread: %s", strerror(errno));
         exit(EXIT_FAILURE);
